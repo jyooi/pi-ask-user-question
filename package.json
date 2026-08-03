@@ -1,7 +1,24 @@
 {
-  "name": "pi-ask-user-question",
+  "name": "@jyooi/pi-ask-user-question",
   "version": "0.1.0",
-  "private": true,
+  "description": "A structured ask_user_question tool for interactive pi sessions.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jyooi/pi-ask-user-question.git"
+  },
+  "homepage": "https://github.com/jyooi/pi-ask-user-question#readme",
+  "bugs": {
+    "url": "https://github.com/jyooi/pi-ask-user-question/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
   "type": "module",
   "keywords": [
     "pi-package"

@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "pi-ask-user-question",
+      "name": "@jyooi/pi-ask-user-question",
       "dependencies": {
         "effect": "3.22.1",
       },

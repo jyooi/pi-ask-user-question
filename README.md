@@ -17,13 +17,19 @@ Pi extensions run with full system access.
 
 ## Install
 
-Install dependencies once in a fresh local checkout:
+Install the published package:
+
+```sh
+pi install npm:@jyooi/pi-ask-user-question
+```
+
+For local development, install dependencies once in a fresh checkout:
 
 ```sh
 bun install
 ```
 
-Then install the local checkout during development:
+Then install the local checkout:
 
 ```sh
 pi install ./path/to/pi-ask-user-question
@@ -35,7 +41,7 @@ Add `-l` to keep the package in project settings instead of user settings:
 pi install -l ./path/to/pi-ask-user-question
 ```
 
-Install from GitHub:
+Install directly from GitHub:
 
 ```sh
 pi install git:github.com/jyooi/pi-ask-user-question
@@ -43,6 +49,46 @@ pi install git:github.com/jyooi/pi-ask-user-question
 
 Pi reads the package manifest and loads `src/index.ts` without extension configuration.
 Run `pi list` to confirm the package source.
+
+## Appearance
+
+These captures come from a live pi `0.83.0` session.
+
+### Single-select Question
+
+```
+  Deploy
+
+ Which environment should I deploy to?
+
+  Staging
+    Safe, resets nightly
+› Production
+    Live traffic
+  Other
+    Type a free-text Answer.
+
+ move up / down • read pageUp / pageDown • select enter • cancel escape,ctrl+c
+```
+
+### Two Questions where the first is multiSelect
+
+```
+  Features   Rollout
+
+ Which features should I enable?
+
+› [ ] Auth
+      Email and OAuth sign-in
+  [ ] Billing
+      Stripe subscriptions
+  [ ] Search
+      Full-text index
+  Other
+    Type a free-text Answer.
+
+ Question left,ctrl+b / right,ctrl+f • move up / down • read pageUp / pageDown • toggle space • confirm enter • cancel escape,ctrl+c
+```
 
 ## Usage
 
@@ -86,7 +132,7 @@ The UI adds Other, so the model must not include it in `options`.
 
 ## Controls
 
-The help line shows resolved move, read, selection, cancellation, submission, and Question navigation bindings.
+The help row shows resolved move, read, selection, cancellation, submission, and Question navigation bindings.
 Custom bindings replace the displayed defaults and control the Ask immediately.
 
 | Action | Default binding | Behavior |

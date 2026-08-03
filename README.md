@@ -56,26 +56,6 @@ pi install git:github.com/jyooi/pi-ask-user-question
 Pi reads the package manifest and loads `src/index.ts` without extension configuration.
 Run `pi list` to confirm the package source.
 
-## Appearance
-
-These captures come from a live pi `0.83.0` session.
-
-### Single-select Question
-
-```
-  Deploy
-
- Which environment should I deploy to?
-
-  Staging
-    Safe, resets nightly
-› Production
-    Live traffic
-  Other
-    Type a free-text Answer.
-
- move up / down • read pageUp / pageDown • select enter • cancel escape,ctrl+c
-```
 
 ### Two Questions where the first is multiSelect
 

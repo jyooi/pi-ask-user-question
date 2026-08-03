@@ -4,8 +4,11 @@ import type {
 } from "@earendil-works/pi-coding-agent"
 import {
   type Component,
+  type Focusable,
+  Input,
   type KeybindingsManager,
   type TUI,
+  truncateToWidth,
   visibleWidth,
   wrapTextWithAnsi,
 } from "@earendil-works/pi-tui"
@@ -21,6 +24,23 @@ import type { Ask } from "./schema.js"
 import { sanitizeTerminalText } from "./terminal-text.js"
 
 type Question = Ask["questions"][number]
+
+type SelectableRow =
+  | {
+      readonly kind: "option"
+      readonly option: Question["options"][number]
+    }
+  | { readonly kind: "other" }
+
+function getSelectableRows(question: Question): readonly SelectableRow[] {
+  return [
+    ...question.options.map((option) => ({
+      kind: "option" as const,
+      option,
+    })),
+    { kind: "other" as const },
+  ]
+}
 
 interface SingleSelectComponentOptions {
   readonly question: Question
@@ -146,7 +166,8 @@ function formatKeybinding(
     | "tui.select.pageUp"
     | "tui.select.pageDown"
     | "tui.select.confirm"
-    | "tui.select.cancel",
+    | "tui.select.cancel"
+    | "tui.input.submit",
 ): string {
   const keys = keybindings.getKeys(binding)
   return keys.length > 0 ? keys.join(",") : "unbound"
@@ -242,8 +263,12 @@ function fitViewport(
   }
 }
 
-class SingleSelectAskComponent implements Component {
+class SingleSelectAskComponent implements Component, Focusable {
   private selectedIndex = 0
+  private enteringOther = false
+  private otherValidationError = false
+  private readonly otherInput = new Input()
+  private _focused = false
   private contextOffset = 0
   private selectedOptionOffset = 0
   private helpOffset = 0
@@ -262,8 +287,43 @@ class SingleSelectAskComponent implements Component {
 
   constructor(private readonly options: SingleSelectComponentOptions) {}
 
+  get focused(): boolean {
+    return this._focused
+  }
+
+  set focused(value: boolean) {
+    this._focused = value
+    this.otherInput.focused = value && this.enteringOther
+  }
+
   handleInput(data: string): void {
     const { keybindings, question } = this.options
+
+    if (this.enteringOther) {
+      if (keybindings.matches(data, "tui.select.cancel")) {
+        this.leaveOther()
+        return
+      }
+
+      if (keybindings.matches(data, "tui.input.submit")) {
+        this.submitOther()
+        return
+      }
+
+      const previousValue = this.otherInput.getValue()
+      this.otherInput.handleInput(data)
+      const sanitized = sanitizeTerminalText(this.otherInput.getValue())
+      if (sanitized !== this.otherInput.getValue()) {
+        this.otherInput.setValue(sanitized)
+      }
+      if (this.otherInput.getValue() !== previousValue) {
+        this.otherValidationError = false
+      }
+      this.refresh()
+      return
+    }
+
+    const rows = getSelectableRows(question)
 
     if (keybindings.matches(data, "tui.select.up")) {
       this.select(Math.max(0, this.selectedIndex - 1))
@@ -272,7 +332,7 @@ class SingleSelectAskComponent implements Component {
 
     if (keybindings.matches(data, "tui.select.down")) {
       this.select(
-        Math.min(question.options.length - 1, this.selectedIndex + 1),
+        Math.min(rows.length - 1, this.selectedIndex + 1),
       )
       return
     }
@@ -288,9 +348,13 @@ class SingleSelectAskComponent implements Component {
     }
 
     if (keybindings.matches(data, "tui.select.confirm")) {
-      const selected = question.options[this.selectedIndex]
-      if (selected) {
-        this.options.done({ selectedLabels: [selected.label] })
+      const selected = rows[this.selectedIndex]
+      if (selected?.kind === "other") {
+        this.enterOther()
+      } else if (selected) {
+        this.options.done({
+          selectedLabels: [selected.option.label],
+        })
       }
       return
     }
@@ -346,34 +410,66 @@ class SingleSelectAskComponent implements Component {
       " ",
       theme.fg("text", questionText),
     )
-    const optionLines = question.options.map((option, index) => {
+    const optionLines = getSelectableRows(question).map((row, index) => {
       const selected = index === this.selectedIndex
       const marker = selected ? theme.fg("accent", "› ") : "  "
-      const labelText = sanitizeTerminalText(option.label)
-      const descriptionText = sanitizeTerminalText(option.description)
+      const labelText =
+        row.kind === "other"
+          ? "Other"
+          : sanitizeTerminalText(row.option.label)
+      const descriptionText =
+        row.kind === "other"
+          ? "Type a free-text Answer."
+          : sanitizeTerminalText(row.option.description)
       const label = selected
         ? theme.fg("accent", labelText)
         : theme.fg("text", labelText)
-      return [
+      const lines = [
         ...wrapWithPrefix(marker, label),
         ...wrapWithPrefix(
           "    ",
           theme.fg("muted", descriptionText),
         ),
       ]
+
+      if (row.kind === "other" && this.enteringOther) {
+        const inputPrefix = renderWidth > 4 ? "    " : ""
+        const inputWidth = Math.max(
+          1,
+          renderWidth - visibleWidth(inputPrefix),
+        )
+        lines.push(
+          ...this.otherInput
+            .render(inputWidth)
+            .map((line) =>
+              truncateToWidth(`${inputPrefix}${line}`, renderWidth, ""),
+            ),
+        )
+        if (this.otherValidationError) {
+          lines.push(
+            ...wrapWithPrefix(
+              "    ",
+              theme.fg("warning", "Enter a free-text Answer."),
+            ),
+          )
+        }
+      }
+
+      return lines
     })
     const moveUp = formatKeybinding(keybindings, "tui.select.up")
     const moveDown = formatKeybinding(keybindings, "tui.select.down")
     const readUp = formatKeybinding(keybindings, "tui.select.pageUp")
     const readDown = formatKeybinding(keybindings, "tui.select.pageDown")
     const confirm = formatKeybinding(keybindings, "tui.select.confirm")
+    const submit = formatKeybinding(keybindings, "tui.input.submit")
     const cancel = formatKeybinding(keybindings, "tui.select.cancel")
+    const helpText = this.enteringOther
+      ? `submit ${submit} • back ${cancel}`
+      : `move ${moveUp} / ${moveDown} • read ${readUp} / ${readDown} • select ${confirm} • cancel ${cancel}`
     const help = wrapWithPrefix(
       " ",
-      theme.fg(
-        "dim",
-        `move ${moveUp} / ${moveDown} • read ${readUp} / ${readDown} • select ${confirm} • cancel ${cancel}`,
-      ),
+      theme.fg("dim", helpText),
     )
     const bottomBorder = theme.fg(
       "borderAccent",
@@ -425,6 +521,38 @@ class SingleSelectAskComponent implements Component {
     this.cachedWidth = undefined
     this.cachedHeight = undefined
     this.cachedLines = undefined
+  }
+
+  private enterOther(): void {
+    this.enteringOther = true
+    this.otherValidationError = false
+    this.otherInput.setValue("")
+    this.otherInput.focused = this._focused
+    this.refresh()
+  }
+
+  private leaveOther(): void {
+    this.enteringOther = false
+    this.otherValidationError = false
+    this.otherInput.setValue("")
+    this.otherInput.focused = false
+    this.refresh()
+  }
+
+  private submitOther(): void {
+    const otherText = this.otherInput.getValue().trim()
+    if (otherText.length === 0) {
+      this.otherValidationError = true
+      this.refresh()
+      return
+    }
+
+    this.options.done({ selectedLabels: [], otherText })
+  }
+
+  private refresh(): void {
+    this.invalidate()
+    this.options.requestRender()
   }
 
   private getContextMaxOffset(): number {

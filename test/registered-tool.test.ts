@@ -216,6 +216,39 @@ describe("ask_user_question execution seam", () => {
     })
   })
 
+  it("returns a quoted Other Answer through the AskUI seam", async () => {
+    const answers: readonly Answer[] = [
+      { selectedLabels: [], otherText: "Use Deno" },
+    ]
+    const tool = captureTool(
+      stubAskUILayer({ ask: () => Effect.succeed(answers) }),
+    )
+
+    const result = await tool.execute(
+      "ask-other-seam",
+      singleQuestionAsk,
+      undefined,
+      undefined,
+      context("tui"),
+    )
+
+    expect(result).toEqual({
+      content: [
+        { type: "text", text: 'Runtime: "Use Deno" (other)' },
+      ],
+      details: {
+        answers: [
+          {
+            header: "Runtime",
+            question: "Which runtime should this package use?",
+            selectedLabels: [],
+            otherText: "Use Deno",
+          },
+        ],
+      },
+    })
+  })
+
   it("throws a declined error when AskUI cancels the Ask", async () => {
     const tool = captureTool(
       stubAskUILayer({ ask: () => Effect.fail(new UserCancelled()) }),
@@ -258,6 +291,105 @@ describe("ask_user_question execution seam", () => {
         ],
       },
     })
+  })
+
+  it("shows Other and submits its free-text Answer", async () => {
+    let otherRow: string[] = []
+    let textEntry: string[] = []
+    const tool = captureTool()
+
+    const result = await tool.execute(
+      "ask-production-other",
+      singleQuestionAsk,
+      undefined,
+      undefined,
+      interactiveContext((component) => {
+        component.handleInput?.("\x1b[B")
+        component.handleInput?.("\x1b[B")
+        otherRow = component.render(80)
+        component.handleInput?.("\r")
+        component.handleInput?.("Use Deno")
+        textEntry = component.render(80)
+        component.handleInput?.("\r")
+      }),
+    )
+
+    const renderedOtherRow = otherRow.join("\n")
+    expect(renderedOtherRow).toContain("› Other")
+    expect(renderedOtherRow.indexOf("Other")).toBeGreaterThan(
+      renderedOtherRow.indexOf("Node"),
+    )
+    expect(textEntry.join("\n")).toContain("Use Deno")
+    expect(result).toEqual({
+      content: [
+        { type: "text", text: 'Runtime: "Use Deno" (other)' },
+      ],
+      details: {
+        answers: [
+          {
+            header: "Runtime",
+            question: "Which runtime should this package use?",
+            selectedLabels: [],
+            otherText: "Use Deno",
+          },
+        ],
+      },
+    })
+  })
+
+  it("keeps text entry open after an empty Other submission", async () => {
+    let renderedAfterEmpty: string[] = []
+    const tool = captureTool()
+
+    const result = await tool.execute(
+      "ask-production-empty-other",
+      singleQuestionAsk,
+      undefined,
+      undefined,
+      interactiveContext((component) => {
+        component.handleInput?.("\x1b[B")
+        component.handleInput?.("\x1b[B")
+        component.handleInput?.("\r")
+        component.handleInput?.("\r")
+        renderedAfterEmpty = component.render(80)
+        component.handleInput?.("Deno")
+        component.handleInput?.("\r")
+      }),
+    )
+
+    expect(renderedAfterEmpty.join("\n")).toContain(
+      "Enter a free-text Answer.",
+    )
+    expect(result.content).toEqual([
+      { type: "text", text: 'Runtime: "Deno" (other)' },
+    ])
+  })
+
+  it("returns from Other text entry without canceling the Ask", async () => {
+    let renderedAfterEscape: string[] = []
+    const tool = captureTool()
+
+    const result = await tool.execute(
+      "ask-production-other-escape",
+      singleQuestionAsk,
+      undefined,
+      undefined,
+      interactiveContext((component) => {
+        component.handleInput?.("\x1b[B")
+        component.handleInput?.("\x1b[B")
+        component.handleInput?.("\r")
+        component.handleInput?.("Deno")
+        component.handleInput?.("\x1b")
+        renderedAfterEscape = component.render(80)
+        component.handleInput?.("\x1b[A")
+        component.handleInput?.("\r")
+      }),
+    )
+
+    const returnedList = renderedAfterEscape.join("\n")
+    expect(returnedList).toContain("› Other")
+    expect(returnedList).not.toContain("Deno")
+    expect(result.content).toEqual([{ type: "text", text: "Runtime: Node" }])
   })
 
   it("renders and honors configured selection keybindings", async () => {

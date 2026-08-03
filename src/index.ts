@@ -24,6 +24,12 @@ function askProgram(ask: Ask, mode: ExtensionContext["mode"]) {
   return Effect.flatMap(AskUI, (askUI) => askUI.ask(ask))
 }
 
+function declinedAskError(): Error {
+  return new Error(
+    "The user declined this Ask. Do not repeat ask_user_question immediately. Continue using your own judgment.",
+  )
+}
+
 function formatAnswer(answer: Answer): string {
   if (answer.otherText !== undefined) {
     return `${JSON.stringify(sanitizeTerminalText(answer.otherText))} (other)`
@@ -80,8 +86,10 @@ async function executeAsk(
   mode: ExtensionContext["mode"],
   signal: AbortSignal | undefined,
   layer: AskUILayer,
+  semaphore: Effect.Semaphore,
 ) {
   const effect = askProgram(ask, mode).pipe(
+    semaphore.withPermits(1),
     Effect.catchTags({
       NoInteractiveUI: () =>
         Effect.fail(
@@ -89,26 +97,30 @@ async function executeAsk(
             "No interactive user is available for ask_user_question. Continue using your own judgment.",
           ),
         ),
-      UserCancelled: () =>
-        Effect.fail(
-          new Error(
-            "The user declined this Ask. Do not repeat ask_user_question immediately. Continue using your own judgment.",
-          ),
-        ),
+      UserCancelled: () => Effect.fail(declinedAskError()),
     }),
     Effect.provide(layer),
   )
 
-  const answers = signal
-    ? await Effect.runPromise(effect, { signal })
-    : await Effect.runPromise(effect)
-  return formatResult(ask, answers)
+  try {
+    const answers = signal
+      ? await Effect.runPromise(effect, { signal })
+      : await Effect.runPromise(effect)
+    return formatResult(ask, answers)
+  } catch (error) {
+    if (signal?.aborted) {
+      throw declinedAskError()
+    }
+    throw error
+  }
 }
 
 export default function createAskUserQuestionExtension(
   pi: ExtensionAPI,
   askUILayer?: AskUILayer,
 ) {
+  const askSemaphore = Effect.unsafeMakeSemaphore(1)
+
   pi.registerTool<typeof AskParameters, AskResultDetails>({
     name: "ask_user_question",
     label: "Ask User Question",
@@ -127,6 +139,7 @@ export default function createAskUserQuestionExtension(
         ctx.mode,
         signal,
         askUILayer ?? createLiveAskUILayer(ctx.ui),
+        askSemaphore,
       ),
   })
 }

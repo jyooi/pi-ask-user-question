@@ -74,6 +74,7 @@ function interactiveContext(
   terminalRows = 24,
   rowsAfterComponent: readonly number[] = [2],
   keybindingOverrides: KeybindingsConfig = {},
+  onClose?: () => void,
 ): ExtensionContext {
   const tui = {
     children: [] as Component[],
@@ -99,7 +100,12 @@ function interactiveContext(
       ) => Component | Promise<Component>,
     ): Promise<T> {
       return new Promise<T>((resolve, reject) => {
-        void Promise.resolve(factory(tui, theme, keybindings, resolve)).then(
+        const done = (result: T) => {
+          tui.children.length = 0
+          onClose?.()
+          resolve(result)
+        }
+        void Promise.resolve(factory(tui, theme, keybindings, done)).then(
           (component) => {
             const componentHost = {
               children: [component],
@@ -720,8 +726,135 @@ describe("ask_user_question execution seam", () => {
     await started
     controller.abort()
 
-    expect(await outcome).toBeInstanceOf(Error)
+    expect(await outcome).toEqual(
+      expect.objectContaining({
+        message: expect.stringMatching(
+          /user declined.*do not repeat ask_user_question/i,
+        ),
+      }),
+    )
     expect(interruptionFinalizerRan).toBe(true)
+  })
+
+  it("dismisses an open Ask on abort and accepts another Ask", async () => {
+    let markShown = () => {}
+    const shown = new Promise<void>((resolve) => {
+      markShown = resolve
+    })
+    let presentationCount = 0
+    let closeCount = 0
+    const ctx = interactiveContext(
+      (component) => {
+        presentationCount += 1
+        if (presentationCount === 1) {
+          markShown()
+        } else {
+          component.handleInput?.("\r")
+        }
+      },
+      24,
+      [2],
+      {},
+      () => {
+        closeCount += 1
+      },
+    )
+    const tool = captureTool()
+    const controller = new AbortController()
+    const aborted = tool.execute(
+      "ask-production-abort",
+      singleQuestionAsk,
+      controller.signal,
+      undefined,
+      ctx,
+    )
+
+    await shown
+    controller.abort()
+
+    await expect(aborted).rejects.toThrow(
+      /user declined.*do not repeat ask_user_question/i,
+    )
+    expect(closeCount).toBe(1)
+
+    const next = await tool.execute(
+      "ask-production-after-abort",
+      singleQuestionAsk,
+      undefined,
+      undefined,
+      ctx,
+    )
+
+    expect(next.content).toEqual([{ type: "text", text: "Runtime: Bun" }])
+    expect(closeCount).toBe(2)
+  })
+
+  it("serializes concurrent Asks and returns each Answer", async () => {
+    const secondAsk: Ask = {
+      questions: [
+        {
+          header: "Package",
+          question: "Which package shape should this project use?",
+          multiSelect: false,
+          options: [
+            { label: "Library", description: "Export a reusable package." },
+            { label: "App", description: "Run a standalone application." },
+          ],
+        },
+      ],
+    }
+    const starts: string[] = []
+    const answerResolvers = new Map<
+      string,
+      (answers: readonly Answer[]) => void
+    >()
+    const ask = vi.fn((currentAsk: Ask) =>
+      Effect.promise(
+        () =>
+          new Promise<readonly Answer[]>((resolve) => {
+            const header = currentAsk.questions[0]?.header
+            if (!header) {
+              throw new Error("The test Ask needs one Question")
+            }
+            starts.push(header)
+            answerResolvers.set(header, resolve)
+          }),
+      ),
+    )
+    const tool = captureTool(stubAskUILayer({ ask }))
+
+    const first = tool.execute(
+      "ask-batch-1",
+      singleQuestionAsk,
+      undefined,
+      undefined,
+      context("tui"),
+    )
+    await Promise.resolve()
+    expect(starts).toEqual(["Runtime"])
+
+    const second = tool.execute(
+      "ask-batch-2",
+      secondAsk,
+      undefined,
+      undefined,
+      context("tui"),
+    )
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(starts).toEqual(["Runtime"])
+
+    answerResolvers.get("Runtime")?.([{ selectedLabels: ["Node"] }])
+    await expect(first).resolves.toMatchObject({
+      content: [{ type: "text", text: "Runtime: Node" }],
+    })
+    await Promise.resolve()
+    expect(starts).toEqual(["Runtime", "Package"])
+
+    answerResolvers.get("Package")?.([{ selectedLabels: ["Library"] }])
+    await expect(second).resolves.toMatchObject({
+      content: [{ type: "text", text: "Package: Library" }],
+    })
+    expect(ask).toHaveBeenCalledTimes(2)
   })
 
   it.each(["rpc", "json", "print"] as const)(

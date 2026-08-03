@@ -936,9 +936,7 @@ class AskComponent implements Component, Focusable {
     }
 
     this.answers[questionIndex] = answer
-    const nextQuestionIndex = this.answers.findIndex(
-      (candidate) => candidate === undefined,
-    )
+    const nextQuestionIndex = this.answers.indexOf(undefined)
     if (nextQuestionIndex !== -1) {
       this.activateQuestion(nextQuestionIndex)
       return
@@ -962,9 +960,7 @@ class AskComponent implements Component, Focusable {
 
   private goNextQuestion(): void {
     const nextIndex = this.activeQuestionIndex + 1
-    const firstUnansweredIndex = this.answers.findIndex(
-      (candidate) => candidate === undefined,
-    )
+    const firstUnansweredIndex = this.answers.indexOf(undefined)
     if (
       nextIndex < this.questionComponents.length &&
       (this.answers[nextIndex] !== undefined ||

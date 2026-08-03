@@ -46,6 +46,11 @@ const singleQuestionAsk: Ask = {
   ],
 }
 
+const runtimeQuestion = singleQuestionAsk.questions[0]
+if (!runtimeQuestion) {
+  throw new Error("The test Ask needs a Runtime Question.")
+}
+
 const multiSelectAsk: Ask = {
   questions: [
     {
@@ -63,7 +68,7 @@ const multiSelectAsk: Ask = {
 
 const fourQuestionAsk: Ask = {
   questions: [
-    singleQuestionAsk.questions[0]!,
+    runtimeQuestion,
     {
       header: "Deploy",
       question: "Where should this package run?",
@@ -117,6 +122,13 @@ function captureTool(layer?: Layer.Layer<AskUI>) {
 
 function context(mode: ExtensionContext["mode"]): ExtensionContext {
   return { mode } as ExtensionContext
+}
+
+function containsTerminalControl(text: string): boolean {
+  return [...text].some((character) => {
+    const code = character.codePointAt(0)
+    return code !== undefined && (code <= 0x1f || (code >= 0x7f && code <= 0x9f))
+  })
 }
 
 function transcriptTheme(): Theme {
@@ -313,7 +325,7 @@ describe("ask_user_question registration", () => {
 describe("ask_user_question transcript rendering", () => {
   const twoQuestionAsk: Ask = {
     questions: [
-      singleQuestionAsk.questions[0]!,
+      runtimeQuestion,
       {
         header: "Deploy",
         question: "Where should this package run?",
@@ -493,7 +505,7 @@ describe("ask_user_question transcript rendering", () => {
       expect(
         rendered
           .split("\n")
-          .every((line) => !/[\u0000-\u001f\u007f-\u009f]/u.test(line)),
+          .every((line) => !containsTerminalControl(line)),
       ).toBe(true)
       expect(rendered).not.toContain("owned")
       expect(rendered).not.toContain("[31m")
@@ -1544,7 +1556,7 @@ describe("ask_user_question execution seam", () => {
 
     expect(
       renderedLines.every(
-        (line) => !/[\u0000-\u001f\u007f-\u009f]/u.test(line),
+        (line) => !containsTerminalControl(line),
       ),
     ).toBe(true)
     const rendered = renderedLines.join("\n")

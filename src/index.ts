@@ -14,6 +14,7 @@ import {
   type Ask,
   type AskResultDetails,
 } from "./schema.js"
+import { sanitizeTerminalText } from "./terminal-text.js"
 
 function askProgram(ask: Ask, mode: ExtensionContext["mode"]) {
   if (mode !== "tui") {
@@ -25,14 +26,14 @@ function askProgram(ask: Ask, mode: ExtensionContext["mode"]) {
 
 function formatAnswer(answer: Answer): string {
   if (answer.otherText !== undefined) {
-    return `${JSON.stringify(answer.otherText)} (other)`
+    return `${JSON.stringify(sanitizeTerminalText(answer.otherText))} (other)`
   }
 
   if (answer.selectedLabels.length === 0) {
     throw new Error("AskUI returned an empty Answer")
   }
 
-  return answer.selectedLabels.join(", ")
+  return answer.selectedLabels.map(sanitizeTerminalText).join(", ")
 }
 
 function formatResult(ask: Ask, answers: readonly Answer[]) {
@@ -64,7 +65,7 @@ function formatResult(ask: Ask, answers: readonly Answer[]) {
       if (!source) {
         throw new Error("AskUI omitted an Answer")
       }
-      return `${answer.header}: ${formatAnswer(source)}`
+      return `${sanitizeTerminalText(answer.header)}: ${formatAnswer(source)}`
     })
     .join("\n")
 

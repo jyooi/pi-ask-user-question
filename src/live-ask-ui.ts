@@ -33,8 +33,7 @@ interface SingleSelectComponentOptions {
 
 interface QuestionLayout {
   readonly full: readonly string[]
-  readonly header: readonly string[]
-  readonly question: readonly string[]
+  readonly context: readonly string[]
   readonly options: readonly (readonly string[])[]
   readonly help: readonly string[]
   readonly bottomBorder: string
@@ -42,6 +41,7 @@ interface QuestionLayout {
 
 interface ViewportLayout {
   readonly lines: readonly string[]
+  readonly contextHeight: number
   readonly optionHeight: number
 }
 
@@ -88,25 +88,16 @@ function getAvailableComponentHeight(
 }
 
 function fitContext(
-  header: readonly string[],
-  question: readonly string[],
+  context: readonly string[],
+  offset: number,
   height: number,
 ): string[] {
   if (height <= 0) {
     return []
   }
-  if (height === 1 || question.length === 0) {
-    return header.slice(0, height)
-  }
 
-  const headerHeight = Math.min(
-    header.length,
-    Math.max(1, height - question.length),
-  )
-  return [
-    ...header.slice(0, headerHeight),
-    ...question.slice(0, height - headerHeight),
-  ]
+  const start = Math.min(offset, Math.max(0, context.length - height))
+  return context.slice(start, start + height)
 }
 
 function fitOptions(
@@ -163,12 +154,14 @@ function fitHelp(
 function fitViewport(
   layout: QuestionLayout,
   selectedIndex: number,
+  contextOffset: number,
   selectedOptionOffset: number,
   height: number,
 ): ViewportLayout {
   if (layout.full.length <= height) {
     return {
       lines: layout.full,
+      contextHeight: layout.context.length,
       optionHeight: layout.options[selectedIndex]?.length ?? 1,
     }
   }
@@ -176,7 +169,7 @@ function fitViewport(
   const helpHeight = height >= 5 ? 2 : height >= 4 ? 1 : 0
   const contentHeight = height - helpHeight
   const contextHeight = Math.min(
-    layout.header.length + layout.question.length,
+    layout.context.length,
     Math.max(0, contentHeight - 1),
     Math.max(2, Math.floor(height / 3)),
   )
@@ -184,7 +177,7 @@ function fitViewport(
 
   return {
     lines: [
-      ...fitContext(layout.header, layout.question, contextHeight),
+      ...fitContext(layout.context, contextOffset, contextHeight),
       ...fitOptions(
         layout.options,
         selectedIndex,
@@ -193,13 +186,17 @@ function fitViewport(
       ),
       ...fitHelp(layout.help, layout.bottomBorder, helpHeight),
     ],
+    contextHeight,
     optionHeight,
   }
 }
 
 class SingleSelectAskComponent implements Component {
   private selectedIndex = 0
+  private contextOffset = 0
   private selectedOptionOffset = 0
+  private contextLineCount = 0
+  private contextViewportHeight = 0
   private optionHeights: readonly number[] = []
   private optionViewportHeight = 1
   private cachedWidth: number | undefined
@@ -212,7 +209,9 @@ class SingleSelectAskComponent implements Component {
     const { keybindings, question } = this.options
 
     if (keybindings.matches(data, "tui.select.up")) {
-      if (this.selectedOptionOffset > 0) {
+      if (this.contextOffset > 0) {
+        this.scrollContext(-1)
+      } else if (this.selectedOptionOffset > 0) {
         this.scrollSelectedOption(-1)
       } else {
         this.select(Math.max(0, this.selectedIndex - 1))
@@ -223,10 +222,10 @@ class SingleSelectAskComponent implements Component {
     if (keybindings.matches(data, "tui.select.down")) {
       if (this.selectedOptionOffset < this.getSelectedOptionMaxOffset()) {
         this.scrollSelectedOption(1)
-      } else {
-        this.select(
-          Math.min(question.options.length - 1, this.selectedIndex + 1),
-        )
+      } else if (this.selectedIndex < question.options.length - 1) {
+        this.select(this.selectedIndex + 1)
+      } else if (this.contextOffset < this.getContextMaxOffset()) {
+        this.scrollContext(1)
       }
       return
     }
@@ -308,7 +307,7 @@ class SingleSelectAskComponent implements Component {
     })
     const help = wrapWithPrefix(
       " ",
-      theme.fg("dim", "↑↓ move • Enter select • Esc cancel"),
+      theme.fg("dim", "↑↓ move/read • Enter select • Esc cancel"),
     )
     const bottomBorder = theme.fg(
       "borderAccent",
@@ -325,20 +324,23 @@ class SingleSelectAskComponent implements Component {
       ...help,
       bottomBorder,
     ]
+    const context = [...header, ...questionLines]
     const viewport = fitViewport(
       {
         full,
-        header,
-        question: questionLines,
+        context,
         options: optionLines,
         help,
         bottomBorder,
       },
       this.selectedIndex,
+      this.contextOffset,
       this.selectedOptionOffset,
       viewportHeight,
     )
 
+    this.contextLineCount = context.length
+    this.contextViewportHeight = viewport.contextHeight
     this.optionHeights = optionLines.map((lines) => lines.length)
     this.optionViewportHeight = viewport.optionHeight
     this.cachedWidth = renderWidth
@@ -353,12 +355,29 @@ class SingleSelectAskComponent implements Component {
     this.cachedLines = undefined
   }
 
+  private getContextMaxOffset(): number {
+    return Math.max(0, this.contextLineCount - this.contextViewportHeight)
+  }
+
   private getSelectedOptionMaxOffset(): number {
     return Math.max(
       0,
       (this.optionHeights[this.selectedIndex] ?? 0) -
         this.optionViewportHeight,
     )
+  }
+
+  private scrollContext(direction: -1 | 1): void {
+    const pageHeight = Math.max(1, this.contextViewportHeight - 1)
+    this.contextOffset = Math.max(
+      0,
+      Math.min(
+        this.getContextMaxOffset(),
+        this.contextOffset + direction * pageHeight,
+      ),
+    )
+    this.invalidate()
+    this.options.requestRender()
   }
 
   private scrollSelectedOption(direction: -1 | 1): void {

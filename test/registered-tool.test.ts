@@ -362,6 +362,64 @@ describe("ask_user_question execution seam", () => {
     ])
   })
 
+  it("scrolls through every wrapped Header and Question line", async () => {
+    const headerWords = ["AA", "BB", "CC", "DD"]
+    const questionWords = [
+      "Q01",
+      "Q02",
+      "Q03",
+      "Q04",
+      "Q05",
+      "Q06",
+      "Q07",
+      "Q08",
+      "QUESTION_END",
+    ]
+    const ask: Ask = {
+      questions: [
+        {
+          header: headerWords.join(" "),
+          question: questionWords.join(" "),
+          multiSelect: false,
+          options: [
+            { label: "Alpha", description: "First Option." },
+            { label: "Beta", description: "Second Option." },
+          ],
+        },
+      ],
+    }
+    const renders: string[][] = []
+    const tool = captureTool()
+
+    const result = await tool.execute(
+      "ask-production-context-scroll",
+      ask,
+      undefined,
+      undefined,
+      interactiveContext((component) => {
+        for (let step = 0; step < 20; step += 1) {
+          const lines = component.render(10)
+          renders.push(lines)
+          if (lines.join("").replaceAll(" ", "").includes("QUESTION_END")) {
+            break
+          }
+          component.handleInput?.("\x1b[B")
+        }
+        component.handleInput?.("\r")
+      }, 10),
+    )
+
+    const rendered = renders.flat().join("").replaceAll(" ", "")
+    expect(renders.at(-1)?.join("").replaceAll(" ", "")).toContain(
+      "QUESTION_END",
+    )
+    for (const word of [...headerWords, ...questionWords]) {
+      expect(rendered).toContain(word)
+    }
+    expect(renders.every((lines) => lines.length <= 8)).toBe(true)
+    expect(result.content).toEqual([{ type: "text", text: "AA BB CC DD: Beta" }])
+  })
+
   it("derives viewport height from components below the Ask", async () => {
     let renderedLines: string[] = []
     const tool = captureTool()
@@ -405,7 +463,7 @@ describe("ask_user_question execution seam", () => {
     let renderedLines: string[] = []
     const tool = captureTool()
 
-    await tool.execute(
+    const result = await tool.execute(
       "ask-production-sanitized",
       ask,
       undefined,
@@ -430,6 +488,16 @@ describe("ask_user_question execution seam", () => {
     expect(rendered).not.toContain("[31m")
     expect(rendered).not.toContain("[2J")
     expect(rendered).not.toContain("owned")
+    expect(result.content).toEqual([{ type: "text", text: "Run: Bun" }])
+    expect(result.details).toEqual({
+      answers: [
+        {
+          header: "Run\x1b]52;c;\x07",
+          question: "Choose\x1b[31m safely",
+          selectedLabels: ["Bun\x1b[2J"],
+        },
+      ],
+    })
   })
 
   it("throws a declined error when Escape cancels the production AskUI Layer", async () => {

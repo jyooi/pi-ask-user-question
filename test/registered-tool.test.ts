@@ -167,6 +167,56 @@ describe("ask_user_question execution seam", () => {
     ).rejects.toThrow(/user declined.*do not repeat ask_user_question/i)
   })
 
+  it("throws a missing UI error from the scaffold AskUI Layer", async () => {
+    const tool = captureTool()
+
+    await expect(
+      tool.execute(
+        "ask-missing-ui",
+        singleQuestionAsk,
+        undefined,
+        undefined,
+        context("tui"),
+      ),
+    ).rejects.toThrow(/no interactive user is available/i)
+  })
+
+  it("maps the execute AbortSignal to Effect interruption", async () => {
+    let markStarted = () => {}
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve
+    })
+    let interruptionFinalizerRan = false
+    const tool = captureTool(
+      stubAskUILayer({
+        ask: () =>
+          Effect.sync(markStarted).pipe(
+            Effect.zipRight(Effect.never),
+            Effect.ensuring(
+              Effect.sync(() => {
+                interruptionFinalizerRan = true
+              }),
+            ),
+          ),
+      }),
+    )
+    const controller = new AbortController()
+    const execution = tool.execute(
+      "ask-abort",
+      singleQuestionAsk,
+      controller.signal,
+      undefined,
+      context("tui"),
+    )
+    const rejection = expect(execution).rejects.toThrow()
+
+    await started
+    controller.abort()
+
+    await rejection
+    expect(interruptionFinalizerRan).toBe(true)
+  })
+
   it.each(["rpc", "json", "print"] as const)(
     "throws without calling AskUI in %s mode",
     async (mode) => {

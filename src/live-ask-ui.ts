@@ -45,12 +45,26 @@ function getSelectableRows(question: Question): readonly SelectableRow[] {
 }
 
 interface QuestionComponentOptions {
+  readonly ask: Ask
   readonly question: Question
+  readonly theme: Theme
+  readonly keybindings: KeybindingsManager
+  readonly getActiveQuestionIndex: () => number
+  readonly isAnswered: (index: number) => boolean
+  readonly getViewportHeight: (width: number) => number
+  readonly requestRender: () => void
+  readonly goPreviousQuestion: () => void
+  readonly goNextQuestion: () => void
+  readonly done: (answer: Answer | null) => void
+}
+
+interface AskComponentOptions {
+  readonly ask: Ask
   readonly theme: Theme
   readonly keybindings: KeybindingsManager
   readonly getViewportHeight: (width: number) => number
   readonly requestRender: () => void
-  readonly done: (answer: Answer | null) => void
+  readonly done: (answers: readonly Answer[] | null) => void
 }
 
 interface QuestionLayout {
@@ -169,7 +183,9 @@ function formatKeybinding(
     | "tui.select.pageDown"
     | "tui.select.confirm"
     | "tui.select.cancel"
-    | "tui.input.submit",
+    | "tui.input.submit"
+    | "tui.editor.cursorLeft"
+    | "tui.editor.cursorRight",
 ): string {
   const keys = keybindings.getKeys(binding)
   return keys.length > 0 ? keys.join(",") : "unbound"
@@ -329,6 +345,16 @@ class QuestionAskComponent implements Component, Focusable {
 
     const rows = getSelectableRows(question)
 
+    if (keybindings.matches(data, "tui.editor.cursorLeft")) {
+      this.options.goPreviousQuestion()
+      return
+    }
+
+    if (keybindings.matches(data, "tui.editor.cursorRight")) {
+      this.options.goNextQuestion()
+      return
+    }
+
     if (question.multiSelect && matchesKey(data, Key.space)) {
       const selected = rows[this.selectedIndex]
       if (selected?.kind === "option") {
@@ -400,8 +426,7 @@ class QuestionAskComponent implements Component, Focusable {
       return [...this.cachedLines]
     }
 
-    const { question, theme, keybindings } = this.options
-    const headerText = sanitizeTerminalText(question.header)
+    const { ask, question, theme, keybindings } = this.options
     const questionText = sanitizeTerminalText(question.question)
     const wrapWithPrefix = (prefix: string, text: string) => {
       const prefixWidth = visibleWidth(prefix)
@@ -423,10 +448,21 @@ class QuestionAskComponent implements Component, Focusable {
     )
     const header = wrapWithPrefix(
       " ",
-      theme.bg(
-        "selectedBg",
-        theme.fg("accent", ` ${headerText} `),
-      ),
+      ask.questions
+        .map((candidate, index) => {
+          const chip = ` ${sanitizeTerminalText(candidate.header)} `
+          if (index === this.options.getActiveQuestionIndex()) {
+            return theme.bg(
+              "selectedBg",
+              theme.fg("accent", chip),
+            )
+          }
+          return theme.fg(
+            this.options.isAnswered(index) ? "success" : "muted",
+            chip,
+          )
+        })
+        .join(" "),
     )
     const questionLines = wrapWithPrefix(
       " ",
@@ -513,11 +549,23 @@ class QuestionAskComponent implements Component, Focusable {
     const confirm = formatKeybinding(keybindings, "tui.select.confirm")
     const submit = formatKeybinding(keybindings, "tui.input.submit")
     const cancel = formatKeybinding(keybindings, "tui.select.cancel")
+    const previousQuestion = formatKeybinding(
+      keybindings,
+      "tui.editor.cursorLeft",
+    )
+    const nextQuestion = formatKeybinding(
+      keybindings,
+      "tui.editor.cursorRight",
+    )
+    const questionNavigation =
+      ask.questions.length > 1
+        ? `Question ${previousQuestion} / ${nextQuestion} • `
+        : ""
     const helpText = this.enteringOther
       ? `submit ${submit} • back ${cancel}`
       : question.multiSelect
-        ? `move ${moveUp} / ${moveDown} • read ${readUp} / ${readDown} • toggle space • confirm ${confirm} • cancel ${cancel}`
-        : `move ${moveUp} / ${moveDown} • read ${readUp} / ${readDown} • select ${confirm} • cancel ${cancel}`
+        ? `${questionNavigation}move ${moveUp} / ${moveDown} • read ${readUp} / ${readDown} • toggle space • confirm ${confirm} • cancel ${cancel}`
+        : `${questionNavigation}move ${moveUp} / ${moveDown} • read ${readUp} / ${readDown} • select ${confirm} • cancel ${cancel}`
     const help = wrapWithPrefix(
       " ",
       theme.fg("dim", helpText),
@@ -823,37 +871,155 @@ class QuestionAskComponent implements Component, Focusable {
   }
 }
 
+class AskComponent implements Component, Focusable {
+  private activeQuestionIndex = 0
+  private answers: Array<Answer | undefined>
+  private readonly questionComponents: readonly QuestionAskComponent[]
+  private _focused = false
+
+  constructor(private readonly options: AskComponentOptions) {
+    this.answers = Array.from(
+      { length: options.ask.questions.length },
+      () => undefined,
+    )
+    this.questionComponents = options.ask.questions.map(
+      (question, questionIndex) =>
+        new QuestionAskComponent({
+          ask: options.ask,
+          question,
+          theme: options.theme,
+          keybindings: options.keybindings,
+          getActiveQuestionIndex: () => this.activeQuestionIndex,
+          isAnswered: (index) => this.answers[index] !== undefined,
+          getViewportHeight: options.getViewportHeight,
+          requestRender: options.requestRender,
+          goPreviousQuestion: () => this.goPreviousQuestion(),
+          goNextQuestion: () => this.goNextQuestion(),
+          done: (answer) => this.answerQuestion(questionIndex, answer),
+        }),
+    )
+  }
+
+  get focused(): boolean {
+    return this._focused
+  }
+
+  set focused(value: boolean) {
+    this._focused = value
+    const active = this.questionComponents[this.activeQuestionIndex]
+    if (active) {
+      active.focused = value
+    }
+  }
+
+  handleInput(data: string): void {
+    this.questionComponents[this.activeQuestionIndex]?.handleInput(data)
+  }
+
+  render(width: number): string[] {
+    return this.questionComponents[this.activeQuestionIndex]?.render(width) ?? []
+  }
+
+  invalidate(): void {
+    for (const component of this.questionComponents) {
+      component.invalidate()
+    }
+  }
+
+  private answerQuestion(
+    questionIndex: number,
+    answer: Answer | null,
+  ): void {
+    if (answer === null) {
+      this.options.done(null)
+      return
+    }
+
+    this.answers[questionIndex] = answer
+    const nextQuestionIndex = this.answers.findIndex(
+      (candidate) => candidate === undefined,
+    )
+    if (nextQuestionIndex !== -1) {
+      this.activateQuestion(nextQuestionIndex)
+      return
+    }
+
+    const answers = this.answers.map((candidate) => {
+      if (!candidate) {
+        throw new Error("AskUI omitted an Answer.")
+      }
+      return candidate
+    })
+    this.options.done(answers)
+  }
+
+  private goPreviousQuestion(): void {
+    const previousIndex = this.activeQuestionIndex - 1
+    if (previousIndex >= 0 && this.answers[previousIndex] !== undefined) {
+      this.activateQuestion(previousIndex)
+    }
+  }
+
+  private goNextQuestion(): void {
+    const nextIndex = this.activeQuestionIndex + 1
+    const firstUnansweredIndex = this.answers.findIndex(
+      (candidate) => candidate === undefined,
+    )
+    if (
+      nextIndex < this.questionComponents.length &&
+      (this.answers[nextIndex] !== undefined ||
+        nextIndex === firstUnansweredIndex)
+    ) {
+      this.activateQuestion(nextIndex)
+    }
+  }
+
+  private activateQuestion(questionIndex: number): void {
+    if (questionIndex === this.activeQuestionIndex) {
+      return
+    }
+
+    const previous = this.questionComponents[this.activeQuestionIndex]
+    if (previous) {
+      previous.focused = false
+    }
+    this.activeQuestionIndex = questionIndex
+    const active = this.questionComponents[this.activeQuestionIndex]
+    if (active) {
+      active.focused = this._focused
+      active.invalidate()
+    }
+    this.options.requestRender()
+  }
+}
+
 export function createLiveAskUILayer(
   ui: ExtensionUIContext,
 ): AskUILayer {
   return Layer.succeed(AskUI, {
     ask: (ask) => {
-      const question = ask.questions[0]
-      if (!question) {
+      if (ask.questions.length === 0) {
         return Effect.die(new Error("AskUI received an Ask without a Question."))
       }
-      if (ask.questions.length !== 1) {
-        return Effect.die(new Error("AskUI supports one Question."))
-      }
 
-      return Effect.async<Answer | null>((resume) => {
+      return Effect.async<readonly Answer[] | null>((resume) => {
         let settled = false
         let dismiss = () => {}
-        const custom = ui.custom<Answer | null>(
+        const custom = ui.custom<readonly Answer[] | null>(
           (tui, theme, keybindings, done) => {
-            const complete = (answer: Answer | null) => {
+            const complete = (answers: readonly Answer[] | null) => {
               if (settled) {
                 return
               }
               settled = true
-              done(answer)
-              resume(Effect.succeed(answer))
+              done(answers)
+              resume(Effect.succeed(answers))
             }
             dismiss = () => complete(null)
 
-            let component: QuestionAskComponent
-            component = new QuestionAskComponent({
-              question,
+            let component: AskComponent
+            component = new AskComponent({
+              ask,
               theme,
               keybindings,
               getViewportHeight: (width) =>
@@ -875,10 +1041,10 @@ export function createLiveAskUILayer(
 
         return Effect.sync(() => dismiss())
       }).pipe(
-        Effect.flatMap((answer) =>
-          answer === null
+        Effect.flatMap((answers) =>
+          answers === null
             ? Effect.fail(new UserCancelled())
-            : Effect.succeed([answer]),
+            : Effect.succeed(answers),
         ),
       )
     },

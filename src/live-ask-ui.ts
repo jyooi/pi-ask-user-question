@@ -267,7 +267,7 @@ class SingleSelectAskComponent implements Component, Focusable {
   private selectedIndex = 0
   private enteringOther = false
   private otherValidationError = false
-  private readonly otherInput = new Input()
+  private otherInput = new Input()
   private _focused = false
   private contextOffset = 0
   private selectedOptionOffset = 0
@@ -528,15 +528,17 @@ class SingleSelectAskComponent implements Component, Focusable {
   private enterOther(): void {
     this.enteringOther = true
     this.otherValidationError = false
-    this.otherInput.setValue("")
+    this.otherInput = new Input()
     this.otherInput.focused = this._focused
+    this.selectedOptionOffset = 0
+    this.readingContext = false
+    this.readingHelp = false
     this.refresh()
   }
 
   private leaveOther(): void {
     this.enteringOther = false
     this.otherValidationError = false
-    this.otherInput.setValue("")
     this.otherInput.focused = false
     this.refresh()
   }

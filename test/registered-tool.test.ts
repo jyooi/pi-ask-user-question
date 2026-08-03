@@ -337,12 +337,40 @@ describe("ask_user_question execution seam", () => {
     })
   })
 
-  it("keeps Other input visible in a tight viewport", async () => {
+  it("keeps Other input visible after reading in a one-row viewport", async () => {
     let textEntry: string[] = []
     const tool = captureTool()
 
     const result = await tool.execute(
-      "ask-production-other-tight-viewport",
+      "ask-production-other-one-row",
+      singleQuestionAsk,
+      undefined,
+      undefined,
+      interactiveContext((component) => {
+        component.handleInput?.("\x1b[B")
+        component.handleInput?.("\x1b[B")
+        component.render(18)
+        component.handleInput?.("\x1b[5~")
+        component.handleInput?.("\r")
+        component.handleInput?.("Use Deno")
+        textEntry = component.render(18)
+        component.handleInput?.("\r")
+      }, 3),
+    )
+
+    expect(textEntry).toHaveLength(1)
+    expect(textEntry.join("\n")).toContain("Deno")
+    expect(result.content).toEqual([
+      { type: "text", text: 'Runtime: "Use Deno" (other)' },
+    ])
+  })
+
+  it("starts each Other entry with fresh editor history", async () => {
+    let reopenedEntry: string[] = []
+    const tool = captureTool()
+
+    const result = await tool.execute(
+      "ask-production-other-fresh-history",
       singleQuestionAsk,
       undefined,
       undefined,
@@ -350,16 +378,20 @@ describe("ask_user_question execution seam", () => {
         component.handleInput?.("\x1b[B")
         component.handleInput?.("\x1b[B")
         component.handleInput?.("\r")
-        component.handleInput?.("Use Deno")
-        textEntry = component.render(18)
+        component.handleInput?.("Discarded")
+        component.handleInput?.("\x15")
+        component.handleInput?.("\x1b")
         component.handleInput?.("\r")
-      }, 4),
+        component.handleInput?.("\x19")
+        reopenedEntry = component.render(80)
+        component.handleInput?.("Fresh")
+        component.handleInput?.("\r")
+      }),
     )
 
-    expect(textEntry).toHaveLength(2)
-    expect(textEntry.join("\n")).toContain("Deno")
+    expect(reopenedEntry.join("\n")).not.toContain("Discarded")
     expect(result.content).toEqual([
-      { type: "text", text: 'Runtime: "Use Deno" (other)' },
+      { type: "text", text: 'Runtime: "Fresh" (other)' },
     ])
   })
 

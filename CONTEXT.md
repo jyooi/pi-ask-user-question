@@ -20,7 +20,8 @@ _Avoid_: title, tag
 One selectable choice inside a Question. It has a Label and a Description.
 
 **Other**:
-The free-text escape hatch that the UI appends to every Question. The user types a custom answer instead of picking an Option.
+The free-text escape hatch that the UI appends to every Question.
+The user types free text when the listed Options do not fully express the Answer.
 _Avoid_: custom option, write-in
 
 **Answer**:

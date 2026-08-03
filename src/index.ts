@@ -15,6 +15,10 @@ import {
   type AskResultDetails,
 } from "./schema.js"
 import { sanitizeTerminalText } from "./terminal-text.js"
+import {
+  renderAskCall,
+  renderAskResult,
+} from "./transcript-rendering.js"
 
 function askProgram(ask: Ask, mode: ExtensionContext["mode"]) {
   if (mode !== "tui") {
@@ -127,6 +131,16 @@ export default function createAskUserQuestionExtension(
         ctx.mode,
         signal,
         askUILayer ?? createLiveAskUILayer(ctx.ui),
+      ),
+    renderCall: (args, theme, context) =>
+      renderAskCall(args, theme, context.lastComponent),
+    renderResult: (result, options, theme, context) =>
+      renderAskResult(
+        result,
+        options.isPartial,
+        context.isError,
+        theme,
+        context.lastComponent,
       ),
   })
 }

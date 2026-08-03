@@ -1,0 +1,138 @@
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent"
+import { Effect, Layer } from "effect"
+
+import {
+  AskUI,
+  NoInteractiveUI,
+  UserCancelled,
+  type Answer,
+  type AskUILayer,
+} from "./ask-ui.js"
+import {
+  AskParameters,
+  type Ask,
+  type AskResultDetails,
+} from "./schema.js"
+
+const scaffoldAskUILayer: AskUILayer = Layer.succeed(AskUI, {
+  ask: () => Effect.fail(new NoInteractiveUI()),
+})
+
+function askProgram(ask: Ask, mode: ExtensionContext["mode"]) {
+  if (mode !== "tui") {
+    return Effect.fail(new NoInteractiveUI())
+  }
+
+  return Effect.flatMap(AskUI, (askUI) => askUI.ask(ask))
+}
+
+function formatAnswer(answer: Answer): string {
+  if (answer.otherText !== undefined) {
+    return `${JSON.stringify(answer.otherText)} (other)`
+  }
+
+  if (answer.selectedLabels.length === 0) {
+    throw new Error("AskUI returned an empty Answer")
+  }
+
+  return answer.selectedLabels.join(", ")
+}
+
+function formatResult(ask: Ask, answers: readonly Answer[]) {
+  if (answers.length !== ask.questions.length) {
+    throw new Error("AskUI returned the wrong number of Answers")
+  }
+
+  const details: AskResultDetails = {
+    answers: ask.questions.map((question, index) => {
+      const answer = answers[index]
+      if (!answer) {
+        throw new Error("AskUI omitted an Answer")
+      }
+
+      return {
+        header: question.header,
+        question: question.question,
+        selectedLabels: [...answer.selectedLabels],
+        ...(answer.otherText === undefined
+          ? {}
+          : { otherText: answer.otherText }),
+      }
+    }),
+  }
+
+  const text = details.answers
+    .map((answer, index) => {
+      const source = answers[index]
+      if (!source) {
+        throw new Error("AskUI omitted an Answer")
+      }
+      return `${answer.header}: ${formatAnswer(source)}`
+    })
+    .join("\n")
+
+  return {
+    content: [{ type: "text" as const, text }],
+    details,
+  }
+}
+
+async function executeAsk(
+  ask: Ask,
+  mode: ExtensionContext["mode"],
+  signal: AbortSignal | undefined,
+  layer: AskUILayer,
+) {
+  const effect = askProgram(ask, mode).pipe(
+    Effect.catchTags({
+      NoInteractiveUI: () =>
+        Effect.fail(
+          new Error(
+            "No interactive user is available for ask_user_question. Continue using your own judgment.",
+          ),
+        ),
+      UserCancelled: () =>
+        Effect.fail(
+          new Error(
+            "The user declined this Ask. Do not repeat ask_user_question immediately. Continue using your own judgment.",
+          ),
+        ),
+    }),
+    Effect.provide(layer),
+  )
+
+  const answers = signal
+    ? await Effect.runPromise(effect, { signal })
+    : await Effect.runPromise(effect)
+  return formatResult(ask, answers)
+}
+
+export default function createAskUserQuestionExtension(
+  pi: ExtensionAPI,
+  askUILayer: AskUILayer = scaffoldAskUILayer,
+) {
+  pi.registerTool<typeof AskParameters, AskResultDetails>({
+    name: "ask_user_question",
+    label: "Ask User Question",
+    description:
+      "Ask the user one to four structured Questions with Options and an automatic Other choice.",
+    promptSnippet:
+      "ask_user_question asks the user structured Questions with selectable Options.",
+    promptGuidelines: [
+      "Use ask_user_question when the user must choose among clear Options.",
+      "Do not use ask_user_question when no interactive user is available.",
+    ],
+    parameters: AskParameters,
+    execute: async (_toolCallId, params, signal, _onUpdate, ctx) =>
+      executeAsk(params, ctx.mode, signal, askUILayer),
+  })
+}
+
+export { AskUI, NoInteractiveUI, UserCancelled } from "./ask-ui.js"
+export type { Answer, AskUILayer, AskUIService } from "./ask-ui.js"
+export { AskParameters } from "./schema.js"
+export type {
+  AnswerDetails,
+  Ask,
+  AskResultDetails,
+} from "./schema.js"

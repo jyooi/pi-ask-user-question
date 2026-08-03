@@ -9,7 +9,7 @@ Questions can accept one Option or several Options through `multiSelect`.
 
 ## Requirements
 
-- pi `0.83.0` or later
+- pi `0.83.0`
 - A real interactive terminal
 
 Review package source before installation.
@@ -47,8 +47,13 @@ Run `pi list` to confirm the package source.
 ## Usage
 
 Start pi in interactive mode after installation.
-The agent can call `ask_user_question` when it needs a choice among clear Options.
+Pi exposes the tool description and usage guidance to the active model automatically.
+The model can call `ask_user_question` when it needs a choice among clear Options.
+The model should not call the tool when no interactive user exists.
 
+### Tool schema
+
+The [TypeBox definition](src/schema.ts) is the authoritative tool schema.
 A tool call uses this shape:
 
 ```json
@@ -73,13 +78,15 @@ A tool call uses this shape:
 }
 ```
 
+The `questions` array contains one to four Questions.
+Each Question requires `header`, `question`, `multiSelect`, and two to four `options`.
+Each Option requires a Label in `label` and a Description in `description`.
 A Header can contain at most twelve characters.
-Every Question requires two to four Options.
 The UI adds Other, so the model must not include it in `options`.
 
 ## Controls
 
-The help line shows bindings from the active pi keybinding configuration.
+The help line shows resolved move, read, selection, cancellation, submission, and Question navigation bindings.
 Custom bindings replace the displayed defaults and control the Ask immediately.
 
 | Action | Default binding | Behavior |
@@ -89,13 +96,22 @@ Custom bindings replace the displayed defaults and control the Ask immediately.
 | Select or confirm | `enter` | Select one Option or confirm toggled Options. |
 | Toggle | `space` | Toggle an Option in a `multiSelect` Question. |
 | Open Other | `enter` | Open free-text entry on the Other row. |
+| Type or paste Other | Printable text or terminal paste | Enter one line of free text. |
+| Move Other cursor | `left`, `ctrl+b`, `right`, `ctrl+f` | Move by one character. |
+| Move Other by word | `alt+left`, `ctrl+left`, `alt+b`, `alt+right`, `ctrl+right`, `alt+f` | Move by one word. |
+| Move to Other boundary | `home`, `ctrl+a`, `end`, `ctrl+e` | Move to the start or end. |
+| Delete Other character | `backspace`, `delete`, `ctrl+d` | Delete one character. |
+| Delete Other word | `ctrl+w`, `alt+backspace`, `alt+d`, `alt+delete` | Delete one word. |
+| Delete to Other boundary | `ctrl+u`, `ctrl+k` | Delete to the start or end. |
+| Undo Other edit | `ctrl+-` | Undo the last edit. |
+| Yank Other text | `ctrl+y`, `alt+y` | Yank text or cycle the kill ring. |
 | Submit Other | `enter` | Submit a non-empty free-text Answer. |
 | Leave Other | `escape`, `ctrl+c` | Return to the Option list without an Answer. |
 | Cancel Ask | `escape`, `ctrl+c` | Decline the whole Ask from the Option list. |
 | Previous Question | `left`, `ctrl+b` | Revisit the previous answered Question. |
 | Next Question | `right`, `ctrl+f` | Move toward the next unanswered Question. |
 
-Selection, confirmation, cancellation, submission, reading, and Question navigation use resolved pi keybindings.
+All listed keybindings except the toggle use resolved pi keybindings.
 The `multiSelect` toggle always uses `space`.
 
 A single-select Other Answer excludes every listed Option.

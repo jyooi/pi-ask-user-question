@@ -294,6 +294,55 @@ describe("ask_user_question execution seam", () => {
     expect(result.content).toEqual([{ type: "text", text: "Runtime: Node" }])
   })
 
+  it("scrolls every configured control hint in a tight viewport", async () => {
+    const renders: string[][] = []
+    const tool = captureTool()
+
+    const result = await tool.execute(
+      "ask-production-scrolling-help",
+      singleQuestionAsk,
+      undefined,
+      undefined,
+      interactiveContext(
+        (component) => {
+          for (let step = 0; step < 60; step += 1) {
+            renders.push(component.render(18))
+            const helpRows = renders
+              .map((lines) => lines.at(-1))
+              .join("")
+              .replaceAll(" ", "")
+            if (helpRows.includes("cancelescape,ctrl+c")) {
+              break
+            }
+            component.handleInput?.("d")
+          }
+          component.handleInput?.("\r")
+        },
+        4,
+        [2],
+        {
+          "tui.select.up": ["k", "ctrl+k"],
+          "tui.select.down": ["j", "ctrl+j"],
+          "tui.select.pageUp": ["u", "ctrl+u"],
+          "tui.select.pageDown": ["d", "ctrl+d"],
+          "tui.select.confirm": ["enter", "ctrl+y"],
+          "tui.select.cancel": ["escape", "ctrl+c"],
+        },
+      ),
+    )
+
+    const helpRows = renders
+      .map((lines) => lines.at(-1))
+      .join("")
+      .replaceAll(" ", "")
+    expect(renders.every((lines) => lines.length <= 2)).toBe(true)
+    expect(helpRows).toContain("movek,ctrl+k/j,ctrl+j")
+    expect(helpRows).toContain("readu,ctrl+u/d,ctrl+d")
+    expect(helpRows).toContain("selectenter,ctrl+y")
+    expect(helpRows).toContain("cancelescape,ctrl+c")
+    expect(result.content).toEqual([{ type: "text", text: "Runtime: Bun" }])
+  })
+
   it("moves the highlight instead of scrolling with arrow keys", async () => {
     const ask: Ask = {
       questions: [

@@ -43,6 +43,7 @@ interface ViewportLayout {
   readonly lines: readonly string[]
   readonly contextHeight: number
   readonly optionHeight: number
+  readonly helpHeight: number
   readonly singleRow: boolean
 }
 
@@ -153,17 +154,18 @@ function formatKeybinding(
 
 function fitHelp(
   help: readonly string[],
+  offset: number,
   bottomBorder: string,
   height: number,
 ): string[] {
   if (height <= 0) {
     return []
   }
-  if (height === 1) {
-    return help.slice(0, 1)
-  }
 
-  return [...help.slice(0, height - 1), bottomBorder]
+  const contentHeight = height === 1 ? 1 : height - 1
+  const start = Math.min(offset, Math.max(0, help.length - contentHeight))
+  const lines = help.slice(start, start + contentHeight)
+  return height === 1 ? lines : [...lines, bottomBorder]
 }
 
 function fitViewport(
@@ -171,7 +173,9 @@ function fitViewport(
   selectedIndex: number,
   contextOffset: number,
   selectedOptionOffset: number,
+  helpOffset: number,
   readingContext: boolean,
+  readingHelp: boolean,
   height: number,
 ): ViewportLayout {
   if (layout.full.length <= height) {
@@ -179,34 +183,41 @@ function fitViewport(
       lines: layout.full,
       contextHeight: layout.context.length,
       optionHeight: layout.options[selectedIndex]?.length ?? 1,
+      helpHeight: layout.help.length,
       singleRow: false,
     }
   }
 
   if (height === 1) {
-    return {
-      lines: readingContext
-        ? fitContext(layout.context, contextOffset, 1)
+    const lines = readingContext
+      ? fitContext(layout.context, contextOffset, 1)
+      : readingHelp
+        ? fitHelp(layout.help, helpOffset, layout.bottomBorder, 1)
         : fitOptions(
             layout.options,
             selectedIndex,
             selectedOptionOffset,
             1,
-          ),
+          )
+    return {
+      lines,
       contextHeight: 1,
       optionHeight: 1,
+      helpHeight: 1,
       singleRow: true,
     }
   }
 
-  const helpHeight = height >= 5 ? 2 : height >= 4 ? 1 : 0
-  const contentHeight = height - helpHeight
+  const helpBlockHeight =
+    height >= 5 ? 2 : height >= 4 || readingHelp ? 1 : 0
+  const contentHeight = height - helpBlockHeight
   const contextHeight = Math.min(
     layout.context.length,
     Math.max(0, contentHeight - 1),
     Math.max(2, Math.floor(height / 3)),
   )
   const optionHeight = contentHeight - contextHeight
+  const helpHeight = helpBlockHeight === 2 ? 1 : helpBlockHeight
 
   return {
     lines: [
@@ -217,10 +228,16 @@ function fitViewport(
         selectedOptionOffset,
         optionHeight,
       ),
-      ...fitHelp(layout.help, layout.bottomBorder, helpHeight),
+      ...fitHelp(
+        layout.help,
+        helpOffset,
+        layout.bottomBorder,
+        helpBlockHeight,
+      ),
     ],
     contextHeight,
     optionHeight,
+    helpHeight,
     singleRow: false,
   }
 }
@@ -229,12 +246,16 @@ class SingleSelectAskComponent implements Component {
   private selectedIndex = 0
   private contextOffset = 0
   private selectedOptionOffset = 0
+  private helpOffset = 0
   private readingContext = false
+  private readingHelp = false
   private singleRowViewport = false
   private contextLineCount = 0
   private contextViewportHeight = 0
   private optionHeights: readonly number[] = []
   private optionViewportHeight = 1
+  private helpLineCount = 0
+  private helpViewportHeight = 0
   private cachedWidth: number | undefined
   private cachedHeight: number | undefined
   private cachedLines: readonly string[] | undefined
@@ -381,7 +402,9 @@ class SingleSelectAskComponent implements Component {
       this.selectedIndex,
       this.contextOffset,
       this.selectedOptionOffset,
+      this.helpOffset,
       this.readingContext,
+      this.readingHelp,
       viewportHeight,
     )
 
@@ -389,6 +412,8 @@ class SingleSelectAskComponent implements Component {
     this.contextViewportHeight = viewport.contextHeight
     this.optionHeights = optionLines.map((lines) => lines.length)
     this.optionViewportHeight = viewport.optionHeight
+    this.helpLineCount = help.length
+    this.helpViewportHeight = viewport.helpHeight
     this.singleRowViewport = viewport.singleRow
     this.cachedWidth = renderWidth
     this.cachedHeight = viewportHeight
@@ -414,6 +439,10 @@ class SingleSelectAskComponent implements Component {
     )
   }
 
+  private getHelpMaxOffset(): number {
+    return Math.max(0, this.helpLineCount - this.helpViewportHeight)
+  }
+
   private scrollReadingViewport(direction: -1 | 1): void {
     if (this.singleRowViewport) {
       this.scrollSingleRowViewport(direction)
@@ -421,7 +450,15 @@ class SingleSelectAskComponent implements Component {
     }
 
     if (direction === -1) {
-      if (this.selectedOptionOffset > 0) {
+      if (this.readingHelp) {
+        if (this.helpOffset > 0) {
+          this.scrollHelp(-1)
+        } else {
+          this.hideHelp()
+        }
+      } else if (this.helpOffset > 0) {
+        this.scrollHelp(-1)
+      } else if (this.selectedOptionOffset > 0) {
         this.scrollSelectedOption(-1)
       } else if (this.contextOffset > 0) {
         this.scrollContext(-1)
@@ -429,12 +466,20 @@ class SingleSelectAskComponent implements Component {
       return
     }
 
-    if (this.contextOffset < this.getContextMaxOffset()) {
+    if (this.readingHelp) {
+      if (this.helpOffset < this.getHelpMaxOffset()) {
+        this.scrollHelp(1)
+      }
+    } else if (this.contextOffset < this.getContextMaxOffset()) {
       this.scrollContext(1)
     } else if (
       this.selectedOptionOffset < this.getSelectedOptionMaxOffset()
     ) {
       this.scrollSelectedOption(1)
+    } else if (this.helpViewportHeight === 0) {
+      this.showHelp(0)
+    } else if (this.helpOffset < this.getHelpMaxOffset()) {
+      this.scrollHelp(1)
     }
   }
 
@@ -447,10 +492,26 @@ class SingleSelectAskComponent implements Component {
         this.contextOffset < this.getContextMaxOffset()
       ) {
         this.scrollContext(1)
+      } else if (direction === -1) {
+        this.showOption(this.getSelectedOptionMaxOffset())
       } else {
-        this.showSingleRowOption(
-          direction === -1 ? this.getSelectedOptionMaxOffset() : 0,
-        )
+        this.showOption(0)
+      }
+      return
+    }
+
+    if (this.readingHelp) {
+      if (direction === -1 && this.helpOffset > 0) {
+        this.scrollHelp(-1)
+      } else if (
+        direction === 1 &&
+        this.helpOffset < this.getHelpMaxOffset()
+      ) {
+        this.scrollHelp(1)
+      } else if (direction === -1) {
+        this.showOption(this.getSelectedOptionMaxOffset())
+      } else {
+        this.showContext(0)
       }
       return
     }
@@ -462,23 +523,39 @@ class SingleSelectAskComponent implements Component {
       this.selectedOptionOffset < this.getSelectedOptionMaxOffset()
     ) {
       this.scrollSelectedOption(1)
+    } else if (direction === -1) {
+      this.showContext(this.getContextMaxOffset())
     } else {
-      this.showSingleRowContext(
-        direction === -1 ? this.getContextMaxOffset() : 0,
-      )
+      this.showHelp(0)
     }
   }
 
-  private showSingleRowContext(offset: number): void {
+  private showContext(offset: number): void {
     this.readingContext = true
+    this.readingHelp = false
     this.contextOffset = offset
     this.invalidate()
     this.options.requestRender()
   }
 
-  private showSingleRowOption(offset: number): void {
+  private showOption(offset: number): void {
     this.readingContext = false
+    this.readingHelp = false
     this.selectedOptionOffset = offset
+    this.invalidate()
+    this.options.requestRender()
+  }
+
+  private showHelp(offset: number): void {
+    this.readingContext = false
+    this.readingHelp = true
+    this.helpOffset = offset
+    this.invalidate()
+    this.options.requestRender()
+  }
+
+  private hideHelp(): void {
+    this.readingHelp = false
     this.invalidate()
     this.options.requestRender()
   }
@@ -509,18 +586,34 @@ class SingleSelectAskComponent implements Component {
     this.options.requestRender()
   }
 
+  private scrollHelp(direction: -1 | 1): void {
+    const pageHeight = Math.max(1, this.helpViewportHeight)
+    this.helpOffset = Math.max(
+      0,
+      Math.min(
+        this.getHelpMaxOffset(),
+        this.helpOffset + direction * pageHeight,
+      ),
+    )
+    this.invalidate()
+    this.options.requestRender()
+  }
+
   private select(index: number): void {
     const changed =
       index !== this.selectedIndex ||
       this.selectedOptionOffset !== 0 ||
-      this.readingContext
+      this.readingContext ||
+      this.readingHelp
     if (!changed) {
       return
     }
 
     this.selectedIndex = index
     this.selectedOptionOffset = 0
+    this.helpOffset = 0
     this.readingContext = false
+    this.readingHelp = false
     this.invalidate()
     this.options.requestRender()
   }

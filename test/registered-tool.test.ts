@@ -72,8 +72,10 @@ function context(mode: ExtensionContext["mode"]): ExtensionContext {
 function interactiveContext(
   drive: (component: Component) => void,
   terminalRows = 24,
+  rowsAfterComponent: readonly number[] = [2],
 ): ExtensionContext {
   const tui = {
+    children: [] as Component[],
     requestRender: vi.fn(),
     terminal: { rows: terminalRows },
   } as unknown as TUI
@@ -105,6 +107,16 @@ function interactiveContext(
       return new Promise<T>((resolve, reject) => {
         void Promise.resolve(factory(tui, theme, keybindings, resolve)).then(
           (component) => {
+            const componentHost = {
+              children: [component],
+              render: (width: number) => component.render(width),
+              invalidate: () => component.invalidate(),
+            }
+            const trailingComponents = rowsAfterComponent.map((height) => ({
+              render: () => Array.from({ length: height }, () => ""),
+              invalidate: () => {},
+            }))
+            tui.children.push(componentHost, ...trailingComponents)
             try {
               drive(component)
             } catch (error) {
@@ -299,6 +311,125 @@ describe("ask_user_question execution seam", () => {
       expect(rendered).toContain(`› ${options[index]?.label}`)
       expect(rendered).toContain(`${options[index]?.label} details`)
     })
+  })
+
+  it("scrolls through every line of an Option taller than the viewport", async () => {
+    const longLabel =
+      "A deliberately long Option label that wraps across several terminal lines"
+    const ask: Ask = {
+      questions: [
+        {
+          header: "Runtime",
+          question: "Choose the runtime.",
+          multiSelect: false,
+          options: [
+            {
+              label: longLabel,
+              description:
+                "Read every part of this detailed description before selecting it. DESCRIPTION_END",
+            },
+            { label: "Short", description: "A short alternative." },
+          ],
+        },
+      ],
+    }
+    const renders: string[][] = []
+    const tool = captureTool()
+
+    const result = await tool.execute(
+      "ask-production-tall-option",
+      ask,
+      undefined,
+      undefined,
+      interactiveContext((component) => {
+        for (let step = 0; step < 10; step += 1) {
+          const lines = component.render(20)
+          renders.push(lines)
+          if (lines.join("\n").includes("DESCRIPTION_END")) {
+            break
+          }
+          component.handleInput?.("\x1b[B")
+        }
+        component.handleInput?.("\r")
+      }, 10),
+    )
+
+    expect(renders[0]?.join("\n")).not.toContain("DESCRIPTION_END")
+    expect(renders.at(-1)?.join("\n")).toContain("DESCRIPTION_END")
+    expect(renders.every((lines) => lines.join("\n").includes("› "))).toBe(true)
+    expect(result.content).toEqual([
+      { type: "text", text: `Runtime: ${longLabel}` },
+    ])
+  })
+
+  it("derives viewport height from components below the Ask", async () => {
+    let renderedLines: string[] = []
+    const tool = captureTool()
+
+    await tool.execute(
+      "ask-production-layout-boundary",
+      singleQuestionAsk,
+      undefined,
+      undefined,
+      interactiveContext((component) => {
+        renderedLines = component.render(40)
+        component.handleInput?.("\r")
+      }, 14, [3, 4]),
+    )
+
+    expect(renderedLines.length).toBeLessThanOrEqual(7)
+    expect(renderedLines.join("\n")).toContain("Runtime")
+    expect(renderedLines.join("\n")).toContain(
+      "Which runtime should this package use?",
+    )
+    expect(renderedLines.join("\n")).toContain("› Bun")
+  })
+
+  it("sanitizes model-provided terminal control sequences", async () => {
+    const ask: Ask = {
+      questions: [
+        {
+          header: "Run\x1b]52;c;\x07",
+          question: "Choose\x1b[31m safely",
+          multiSelect: false,
+          options: [
+            {
+              label: "Bun\x1b[2J",
+              description: "Fast\x1b]0;owned\x07 runtime",
+            },
+            { label: "Node", description: "Node runtime." },
+          ],
+        },
+      ],
+    }
+    let renderedLines: string[] = []
+    const tool = captureTool()
+
+    await tool.execute(
+      "ask-production-sanitized",
+      ask,
+      undefined,
+      undefined,
+      interactiveContext((component) => {
+        renderedLines = component.render(80)
+        component.handleInput?.("\r")
+      }),
+    )
+
+    expect(
+      renderedLines.every(
+        (line) => !/[\u0000-\u001f\u007f-\u009f]/u.test(line),
+      ),
+    ).toBe(true)
+    const rendered = renderedLines.join("\n")
+    expect(rendered).toContain("Run")
+    expect(rendered).toContain("Choose safely")
+    expect(rendered).toContain("Bun")
+    expect(rendered).toContain("Fast runtime")
+    expect(rendered).not.toContain("52;c")
+    expect(rendered).not.toContain("[31m")
+    expect(rendered).not.toContain("[2J")
+    expect(rendered).not.toContain("owned")
   })
 
   it("throws a declined error when Escape cancels the production AskUI Layer", async () => {

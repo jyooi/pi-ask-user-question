@@ -5,6 +5,7 @@ import type {
 import {
   type Component,
   type KeybindingsManager,
+  type TUI,
   visibleWidth,
   wrapTextWithAnsi,
 } from "@earendil-works/pi-tui"
@@ -17,6 +18,7 @@ import {
   type AskUILayer,
 } from "./ask-ui.js"
 import type { Ask } from "./schema.js"
+import { sanitizeTerminalText } from "./terminal-text.js"
 
 type Question = Ask["questions"][number]
 
@@ -24,7 +26,7 @@ interface SingleSelectComponentOptions {
   readonly question: Question
   readonly theme: Theme
   readonly keybindings: KeybindingsManager
-  readonly getViewportHeight: () => number
+  readonly getViewportHeight: (width: number) => number
   readonly requestRender: () => void
   readonly done: (answer: Answer | null) => void
 }
@@ -36,6 +38,53 @@ interface QuestionLayout {
   readonly options: readonly (readonly string[])[]
   readonly help: readonly string[]
   readonly bottomBorder: string
+}
+
+interface ViewportLayout {
+  readonly lines: readonly string[]
+  readonly optionHeight: number
+}
+
+interface ComponentContainer extends Component {
+  readonly children: readonly Component[]
+}
+
+function isComponentContainer(
+  component: Component,
+): component is ComponentContainer {
+  return Array.isArray((component as Partial<ComponentContainer>).children)
+}
+
+function containsComponent(
+  container: Component,
+  target: Component,
+): boolean {
+  if (container === target) {
+    return true
+  }
+  if (!isComponentContainer(container)) {
+    return false
+  }
+
+  return container.children.some((child) => containsComponent(child, target))
+}
+
+function getAvailableComponentHeight(
+  tui: TUI,
+  component: Component,
+  width: number,
+): number {
+  const hostIndex = tui.children.findIndex((child) =>
+    containsComponent(child, component),
+  )
+  if (hostIndex === -1) {
+    return tui.terminal.rows
+  }
+
+  const reservedHeight = tui.children
+    .slice(hostIndex + 1)
+    .reduce((height, child) => height + child.render(width).length, 0)
+  return tui.terminal.rows - reservedHeight
 }
 
 function fitContext(
@@ -63,19 +112,34 @@ function fitContext(
 function fitOptions(
   options: readonly (readonly string[])[],
   selectedIndex: number,
+  selectedOptionOffset: number,
   height: number,
 ): string[] {
   if (height <= 0) {
     return []
   }
 
+  const selectedOption = options[selectedIndex] ?? []
+  if (selectedOption.length > height) {
+    const offset = Math.min(
+      selectedOptionOffset,
+      selectedOption.length - height,
+    )
+    if (height === 1) {
+      return selectedOption.slice(offset, offset + 1)
+    }
+
+    return [
+      ...selectedOption.slice(0, 1),
+      ...selectedOption.slice(1 + offset, 1 + offset + height - 1),
+    ]
+  }
+
   const lines = options.flat()
   const focusStart = options
     .slice(0, selectedIndex)
     .reduce((total, option) => total + option.length, 0)
-  const focusHeight = options[selectedIndex]?.length ?? 1
-  const visibleFocusHeight = Math.min(focusHeight, height)
-  const idealStart = focusStart - Math.floor((height - visibleFocusHeight) / 2)
+  const idealStart = focusStart - Math.floor((height - selectedOption.length) / 2)
   const start = Math.max(0, Math.min(idealStart, lines.length - height))
 
   return lines.slice(start, start + height)
@@ -99,10 +163,14 @@ function fitHelp(
 function fitViewport(
   layout: QuestionLayout,
   selectedIndex: number,
+  selectedOptionOffset: number,
   height: number,
-): string[] {
+): ViewportLayout {
   if (layout.full.length <= height) {
-    return [...layout.full]
+    return {
+      lines: layout.full,
+      optionHeight: layout.options[selectedIndex]?.length ?? 1,
+    }
   }
 
   const helpHeight = height >= 5 ? 2 : height >= 4 ? 1 : 0
@@ -114,18 +182,29 @@ function fitViewport(
   )
   const optionHeight = contentHeight - contextHeight
 
-  return [
-    ...fitContext(layout.header, layout.question, contextHeight),
-    ...fitOptions(layout.options, selectedIndex, optionHeight),
-    ...fitHelp(layout.help, layout.bottomBorder, helpHeight),
-  ]
+  return {
+    lines: [
+      ...fitContext(layout.header, layout.question, contextHeight),
+      ...fitOptions(
+        layout.options,
+        selectedIndex,
+        selectedOptionOffset,
+        optionHeight,
+      ),
+      ...fitHelp(layout.help, layout.bottomBorder, helpHeight),
+    ],
+    optionHeight,
+  }
 }
 
 class SingleSelectAskComponent implements Component {
   private selectedIndex = 0
+  private selectedOptionOffset = 0
+  private optionHeights: readonly number[] = []
+  private optionViewportHeight = 1
   private cachedWidth: number | undefined
   private cachedHeight: number | undefined
-  private cachedLines: string[] | undefined
+  private cachedLines: readonly string[] | undefined
 
   constructor(private readonly options: SingleSelectComponentOptions) {}
 
@@ -133,14 +212,22 @@ class SingleSelectAskComponent implements Component {
     const { keybindings, question } = this.options
 
     if (keybindings.matches(data, "tui.select.up")) {
-      this.select(Math.max(0, this.selectedIndex - 1))
+      if (this.selectedOptionOffset > 0) {
+        this.scrollSelectedOption(-1)
+      } else {
+        this.select(Math.max(0, this.selectedIndex - 1))
+      }
       return
     }
 
     if (keybindings.matches(data, "tui.select.down")) {
-      this.select(
-        Math.min(question.options.length - 1, this.selectedIndex + 1),
-      )
+      if (this.selectedOptionOffset < this.getSelectedOptionMaxOffset()) {
+        this.scrollSelectedOption(1)
+      } else {
+        this.select(
+          Math.min(question.options.length - 1, this.selectedIndex + 1),
+        )
+      }
       return
     }
 
@@ -159,16 +246,21 @@ class SingleSelectAskComponent implements Component {
 
   render(width: number): string[] {
     const renderWidth = Math.max(1, width)
-    const viewportHeight = Math.max(1, this.options.getViewportHeight())
+    const viewportHeight = Math.max(
+      1,
+      this.options.getViewportHeight(renderWidth),
+    )
     if (
       this.cachedLines &&
       this.cachedWidth === renderWidth &&
       this.cachedHeight === viewportHeight
     ) {
-      return this.cachedLines
+      return [...this.cachedLines]
     }
 
     const { question, theme } = this.options
+    const headerText = sanitizeTerminalText(question.header)
+    const questionText = sanitizeTerminalText(question.question)
     const wrapWithPrefix = (prefix: string, text: string) => {
       const prefixWidth = visibleWidth(prefix)
       if (prefixWidth >= renderWidth) {
@@ -191,24 +283,26 @@ class SingleSelectAskComponent implements Component {
       " ",
       theme.bg(
         "selectedBg",
-        theme.fg("accent", ` ${question.header} `),
+        theme.fg("accent", ` ${headerText} `),
       ),
     )
     const questionLines = wrapWithPrefix(
       " ",
-      theme.fg("text", question.question),
+      theme.fg("text", questionText),
     )
     const optionLines = question.options.map((option, index) => {
       const selected = index === this.selectedIndex
       const marker = selected ? theme.fg("accent", "› ") : "  "
+      const labelText = sanitizeTerminalText(option.label)
+      const descriptionText = sanitizeTerminalText(option.description)
       const label = selected
-        ? theme.fg("accent", option.label)
-        : theme.fg("text", option.label)
+        ? theme.fg("accent", labelText)
+        : theme.fg("text", labelText)
       return [
         ...wrapWithPrefix(marker, label),
         ...wrapWithPrefix(
           "    ",
-          theme.fg("muted", option.description),
+          theme.fg("muted", descriptionText),
         ),
       ]
     })
@@ -231,7 +325,7 @@ class SingleSelectAskComponent implements Component {
       ...help,
       bottomBorder,
     ]
-    const lines = fitViewport(
+    const viewport = fitViewport(
       {
         full,
         header,
@@ -241,13 +335,16 @@ class SingleSelectAskComponent implements Component {
         bottomBorder,
       },
       this.selectedIndex,
+      this.selectedOptionOffset,
       viewportHeight,
     )
 
+    this.optionHeights = optionLines.map((lines) => lines.length)
+    this.optionViewportHeight = viewport.optionHeight
     this.cachedWidth = renderWidth
     this.cachedHeight = viewportHeight
-    this.cachedLines = lines
-    return lines
+    this.cachedLines = viewport.lines
+    return [...viewport.lines]
   }
 
   invalidate(): void {
@@ -256,12 +353,34 @@ class SingleSelectAskComponent implements Component {
     this.cachedLines = undefined
   }
 
+  private getSelectedOptionMaxOffset(): number {
+    return Math.max(
+      0,
+      (this.optionHeights[this.selectedIndex] ?? 0) -
+        this.optionViewportHeight,
+    )
+  }
+
+  private scrollSelectedOption(direction: -1 | 1): void {
+    const pageHeight = Math.max(1, this.optionViewportHeight - 1)
+    this.selectedOptionOffset = Math.max(
+      0,
+      Math.min(
+        this.getSelectedOptionMaxOffset(),
+        this.selectedOptionOffset + direction * pageHeight,
+      ),
+    )
+    this.invalidate()
+    this.options.requestRender()
+  }
+
   private select(index: number): void {
     if (index === this.selectedIndex) {
       return
     }
 
     this.selectedIndex = index
+    this.selectedOptionOffset = 0
     this.invalidate()
     this.options.requestRender()
   }
@@ -283,16 +402,19 @@ export function createLiveAskUILayer(
       }
 
       return Effect.promise(() =>
-        ui.custom<Answer | null>((tui, theme, keybindings, done) =>
-          new SingleSelectAskComponent({
+        ui.custom<Answer | null>((tui, theme, keybindings, done) => {
+          let component: SingleSelectAskComponent
+          component = new SingleSelectAskComponent({
             question,
             theme,
             keybindings,
-            getViewportHeight: () => tui.terminal.rows - 2,
+            getViewportHeight: (width) =>
+              getAvailableComponentHeight(tui, component, width),
             requestRender: () => tui.requestRender(),
             done,
-          }),
-        ),
+          })
+          return component
+        }),
       ).pipe(
         Effect.flatMap((answer) =>
           answer === null

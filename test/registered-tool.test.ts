@@ -71,8 +71,12 @@ function context(mode: ExtensionContext["mode"]): ExtensionContext {
 
 function interactiveContext(
   drive: (component: Component) => void,
+  terminalRows = 24,
 ): ExtensionContext {
-  const tui = { requestRender: vi.fn() } as unknown as TUI
+  const tui = {
+    requestRender: vi.fn(),
+    terminal: { rows: terminalRows },
+  } as unknown as TUI
   const theme = {
     fg: (_color: string, text: string) => text,
     bg: (_color: string, text: string) => text,
@@ -247,6 +251,53 @@ describe("ask_user_question execution seam", () => {
           },
         ],
       },
+    })
+  })
+
+  it("keeps every highlighted Option visible in a short viewport", async () => {
+    const options = ["Alpha", "Beta", "Gamma", "Delta"].map((label) => ({
+      label,
+      description: `${label} details explain this Option across several wrapped terminal lines.`,
+    }))
+    const ask: Ask = {
+      questions: [
+        {
+          header: "Runtime",
+          question: "Choose the runtime.",
+          multiSelect: false,
+          options,
+        },
+      ],
+    }
+    const renders: string[][] = []
+    const tool = captureTool()
+
+    const result = await tool.execute(
+      "ask-production-viewport",
+      ask,
+      undefined,
+      undefined,
+      interactiveContext((component) => {
+        options.forEach((_option, index) => {
+          renders.push(component.render(24))
+          if (index < options.length - 1) {
+            component.handleInput?.("\x1b[B")
+          }
+        })
+        component.handleInput?.("\r")
+      }, 14),
+    )
+
+    expect(result.content).toEqual([
+      { type: "text", text: "Runtime: Delta" },
+    ])
+    renders.forEach((lines, index) => {
+      const rendered = lines.join("\n")
+      expect(lines.length).toBeLessThanOrEqual(12)
+      expect(rendered).toContain("Runtime")
+      expect(rendered).toContain("Choose the runtime.")
+      expect(rendered).toContain(`› ${options[index]?.label}`)
+      expect(rendered).toContain(`${options[index]?.label} details`)
     })
   })
 

@@ -137,6 +137,20 @@ function fitOptions(
   return lines.slice(start, start + height)
 }
 
+function formatKeybinding(
+  keybindings: KeybindingsManager,
+  binding:
+    | "tui.select.up"
+    | "tui.select.down"
+    | "tui.select.pageUp"
+    | "tui.select.pageDown"
+    | "tui.select.confirm"
+    | "tui.select.cancel",
+): string {
+  const keys = keybindings.getKeys(binding)
+  return keys.length > 0 ? keys.join(",") : "unbound"
+}
+
 function fitHelp(
   help: readonly string[],
   bottomBorder: string,
@@ -279,7 +293,7 @@ class SingleSelectAskComponent implements Component {
       return [...this.cachedLines]
     }
 
-    const { question, theme } = this.options
+    const { question, theme, keybindings } = this.options
     const headerText = sanitizeTerminalText(question.header)
     const questionText = sanitizeTerminalText(question.question)
     const wrapWithPrefix = (prefix: string, text: string) => {
@@ -327,11 +341,17 @@ class SingleSelectAskComponent implements Component {
         ),
       ]
     })
+    const moveUp = formatKeybinding(keybindings, "tui.select.up")
+    const moveDown = formatKeybinding(keybindings, "tui.select.down")
+    const readUp = formatKeybinding(keybindings, "tui.select.pageUp")
+    const readDown = formatKeybinding(keybindings, "tui.select.pageDown")
+    const confirm = formatKeybinding(keybindings, "tui.select.confirm")
+    const cancel = formatKeybinding(keybindings, "tui.select.cancel")
     const help = wrapWithPrefix(
       " ",
       theme.fg(
         "dim",
-        "↑↓ move • PgUp/PgDn read • Enter select • Esc cancel",
+        `move ${moveUp} / ${moveDown} • read ${readUp} / ${readDown} • select ${confirm} • cancel ${cancel}`,
       ),
     )
     const bottomBorder = theme.fg(

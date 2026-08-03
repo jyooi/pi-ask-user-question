@@ -5,10 +5,10 @@ import type {
   ToolDefinition,
 } from "@earendil-works/pi-coding-agent"
 import {
-  Key,
-  matchesKey,
   type Component,
-  type KeybindingsManager,
+  type KeybindingsConfig,
+  KeybindingsManager,
+  TUI_KEYBINDINGS,
   type TUI,
 } from "@earendil-works/pi-tui"
 import { Effect, Layer } from "effect"
@@ -73,6 +73,7 @@ function interactiveContext(
   drive: (component: Component) => void,
   terminalRows = 24,
   rowsAfterComponent: readonly number[] = [2],
+  keybindingOverrides: KeybindingsConfig = {},
 ): ExtensionContext {
   const tui = {
     children: [] as Component[],
@@ -84,19 +85,10 @@ function interactiveContext(
     bg: (_color: string, text: string) => text,
     bold: (text: string) => text,
   } as unknown as Theme
-  const keybindings = {
-    matches(data: string, binding: string) {
-      const keys = {
-        "tui.select.up": [Key.up],
-        "tui.select.down": [Key.down],
-        "tui.select.pageUp": [Key.pageUp],
-        "tui.select.pageDown": [Key.pageDown],
-        "tui.select.confirm": [Key.enter],
-        "tui.select.cancel": [Key.escape],
-      }[binding]
-      return keys?.some((key) => matchesKey(data, key)) ?? false
-    },
-  } as KeybindingsManager
+  const keybindings = new KeybindingsManager(
+    TUI_KEYBINDINGS,
+    keybindingOverrides,
+  )
   const ui = {
     custom<T>(
       factory: (
@@ -266,6 +258,40 @@ describe("ask_user_question execution seam", () => {
         ],
       },
     })
+  })
+
+  it("renders and honors configured selection keybindings", async () => {
+    let renderedLines: string[] = []
+    const tool = captureTool()
+
+    const result = await tool.execute(
+      "ask-production-keybindings",
+      singleQuestionAsk,
+      undefined,
+      undefined,
+      interactiveContext(
+        (component) => {
+          renderedLines = component.render(100)
+          component.handleInput?.("j")
+          component.handleInput?.("y")
+        },
+        24,
+        [2],
+        {
+          "tui.select.up": "k",
+          "tui.select.down": "j",
+          "tui.select.pageUp": "u",
+          "tui.select.pageDown": "d",
+          "tui.select.confirm": "y",
+          "tui.select.cancel": "x",
+        },
+      ),
+    )
+
+    expect(renderedLines.join("\n")).toContain(
+      "move k / j • read u / d • select y • cancel x",
+    )
+    expect(result.content).toEqual([{ type: "text", text: "Runtime: Node" }])
   })
 
   it("moves the highlight instead of scrolling with arrow keys", async () => {

@@ -634,21 +634,45 @@ export function createLiveAskUILayer(
         )
       }
 
-      return Effect.promise(() =>
-        ui.custom<Answer | null>((tui, theme, keybindings, done) => {
-          let component: SingleSelectAskComponent
-          component = new SingleSelectAskComponent({
-            question,
-            theme,
-            keybindings,
-            getViewportHeight: (width) =>
-              getAvailableComponentHeight(tui, component, width),
-            requestRender: () => tui.requestRender(),
-            done,
-          })
-          return component
-        }),
-      ).pipe(
+      return Effect.async<Answer | null>((resume) => {
+        let settled = false
+        let dismiss = () => {}
+        const custom = ui.custom<Answer | null>(
+          (tui, theme, keybindings, done) => {
+            const complete = (answer: Answer | null) => {
+              if (settled) {
+                return
+              }
+              settled = true
+              done(answer)
+              resume(Effect.succeed(answer))
+            }
+            dismiss = () => complete(null)
+
+            let component: SingleSelectAskComponent
+            component = new SingleSelectAskComponent({
+              question,
+              theme,
+              keybindings,
+              getViewportHeight: (width) =>
+                getAvailableComponentHeight(tui, component, width),
+              requestRender: () => tui.requestRender(),
+              done: complete,
+            })
+            return component
+          },
+        )
+
+        void custom.catch((error: unknown) => {
+          if (settled) {
+            return
+          }
+          settled = true
+          resume(Effect.die(error))
+        })
+
+        return Effect.sync(() => dismiss())
+      }).pipe(
         Effect.flatMap((answer) =>
           answer === null
             ? Effect.fail(new UserCancelled())

@@ -1,5 +1,5 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent"
-import { Effect, Layer } from "effect"
+import { Effect } from "effect"
 
 import {
   AskUI,
@@ -8,15 +8,13 @@ import {
   type Answer,
   type AskUILayer,
 } from "./ask-ui.js"
+import { createLiveAskUILayer } from "./live-ask-ui.js"
 import {
   AskParameters,
   type Ask,
   type AskResultDetails,
 } from "./schema.js"
-
-const scaffoldAskUILayer: AskUILayer = Layer.succeed(AskUI, {
-  ask: () => Effect.fail(new NoInteractiveUI()),
-})
+import { sanitizeTerminalText } from "./terminal-text.js"
 
 function askProgram(ask: Ask, mode: ExtensionContext["mode"]) {
   if (mode !== "tui") {
@@ -28,14 +26,14 @@ function askProgram(ask: Ask, mode: ExtensionContext["mode"]) {
 
 function formatAnswer(answer: Answer): string {
   if (answer.otherText !== undefined) {
-    return `${JSON.stringify(answer.otherText)} (other)`
+    return `${JSON.stringify(sanitizeTerminalText(answer.otherText))} (other)`
   }
 
   if (answer.selectedLabels.length === 0) {
     throw new Error("AskUI returned an empty Answer")
   }
 
-  return answer.selectedLabels.join(", ")
+  return answer.selectedLabels.map(sanitizeTerminalText).join(", ")
 }
 
 function formatResult(ask: Ask, answers: readonly Answer[]) {
@@ -67,7 +65,7 @@ function formatResult(ask: Ask, answers: readonly Answer[]) {
       if (!source) {
         throw new Error("AskUI omitted an Answer")
       }
-      return `${answer.header}: ${formatAnswer(source)}`
+      return `${sanitizeTerminalText(answer.header)}: ${formatAnswer(source)}`
     })
     .join("\n")
 
@@ -109,7 +107,7 @@ async function executeAsk(
 
 export default function createAskUserQuestionExtension(
   pi: ExtensionAPI,
-  askUILayer: AskUILayer = scaffoldAskUILayer,
+  askUILayer?: AskUILayer,
 ) {
   pi.registerTool<typeof AskParameters, AskResultDetails>({
     name: "ask_user_question",
@@ -124,7 +122,12 @@ export default function createAskUserQuestionExtension(
     ],
     parameters: AskParameters,
     execute: async (_toolCallId, params, signal, _onUpdate, ctx) =>
-      executeAsk(params, ctx.mode, signal, askUILayer),
+      executeAsk(
+        params,
+        ctx.mode,
+        signal,
+        askUILayer ?? createLiveAskUILayer(ctx.ui),
+      ),
   })
 }
 

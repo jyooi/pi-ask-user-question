@@ -89,6 +89,8 @@ function interactiveContext(
       const keys = {
         "tui.select.up": [Key.up],
         "tui.select.down": [Key.down],
+        "tui.select.pageUp": [Key.pageUp],
+        "tui.select.pageDown": [Key.pageDown],
         "tui.select.confirm": [Key.enter],
         "tui.select.cancel": [Key.escape],
       }[binding]
@@ -266,6 +268,44 @@ describe("ask_user_question execution seam", () => {
     })
   })
 
+  it("moves the highlight instead of scrolling with arrow keys", async () => {
+    const ask: Ask = {
+      questions: [
+        {
+          header: "Runtime",
+          question: "Choose the runtime.",
+          multiSelect: false,
+          options: [
+            {
+              label: "Alpha",
+              description:
+                "A long description that needs several wrapped lines in this short viewport.",
+            },
+            { label: "Beta", description: "The second Option." },
+          ],
+        },
+      ],
+    }
+    let renderedAfterMove: string[] = []
+    const tool = captureTool()
+
+    const result = await tool.execute(
+      "ask-production-arrow-move",
+      ask,
+      undefined,
+      undefined,
+      interactiveContext((component) => {
+        component.render(18)
+        component.handleInput?.("\x1b[B")
+        renderedAfterMove = component.render(18)
+        component.handleInput?.("\r")
+      }, 10),
+    )
+
+    expect(renderedAfterMove.join("\n")).toContain("› Beta")
+    expect(result.content).toEqual([{ type: "text", text: "Runtime: Beta" }])
+  })
+
   it("keeps every highlighted Option visible in a short viewport", async () => {
     const options = ["Alpha", "Beta", "Gamma", "Delta"].map((label) => ({
       label,
@@ -313,7 +353,7 @@ describe("ask_user_question execution seam", () => {
     })
   })
 
-  it("scrolls through every line of an Option taller than the viewport", async () => {
+  it("reads every line of an Option taller than the viewport", async () => {
     const longLabel =
       "A deliberately long Option label that wraps across several terminal lines"
     const ask: Ask = {
@@ -348,7 +388,7 @@ describe("ask_user_question execution seam", () => {
           if (lines.join("\n").includes("DESCRIPTION_END")) {
             break
           }
-          component.handleInput?.("\x1b[B")
+          component.handleInput?.("\x1b[6~")
         }
         component.handleInput?.("\r")
       }, 10),
@@ -362,7 +402,7 @@ describe("ask_user_question execution seam", () => {
     ])
   })
 
-  it("scrolls through every wrapped Header and Question line", async () => {
+  it("reads every wrapped Header and Question line", async () => {
     const headerWords = ["AA", "BB", "CC", "DD"]
     const questionWords = [
       "Q01",
@@ -403,7 +443,7 @@ describe("ask_user_question execution seam", () => {
           if (lines.join("").replaceAll(" ", "").includes("QUESTION_END")) {
             break
           }
-          component.handleInput?.("\x1b[B")
+          component.handleInput?.("\x1b[6~")
         }
         component.handleInput?.("\r")
       }, 10),
@@ -417,7 +457,61 @@ describe("ask_user_question execution seam", () => {
       expect(rendered).toContain(word)
     }
     expect(renders.every((lines) => lines.length <= 8)).toBe(true)
-    expect(result.content).toEqual([{ type: "text", text: "AA BB CC DD: Beta" }])
+    expect(result.content).toEqual([{ type: "text", text: "AA BB CC DD: Alpha" }])
+  })
+
+  it("visits context and Option lines in a one-row viewport", async () => {
+    const ask: Ask = {
+      questions: [
+        {
+          header: "Context",
+          question: "QUESTION_START middle QUESTION_END",
+          multiSelect: false,
+          options: [
+            {
+              label: "Alpha",
+              description: "ALPHA_START middle ALPHA_END",
+            },
+            {
+              label: "Beta",
+              description: "BETA_START middle BETA_END",
+            },
+          ],
+        },
+      ],
+    }
+    const renders: string[][] = []
+    const tool = captureTool()
+
+    const result = await tool.execute(
+      "ask-production-one-row",
+      ask,
+      undefined,
+      undefined,
+      interactiveContext((component) => {
+        for (let step = 0; step < 20; step += 1) {
+          renders.push(component.render(12))
+          component.handleInput?.("\x1b[6~")
+        }
+        component.handleInput?.("\x1b[B")
+        for (let step = 0; step < 20; step += 1) {
+          renders.push(component.render(12))
+          component.handleInput?.("\x1b[6~")
+        }
+        component.handleInput?.("\r")
+      }, 3),
+    )
+
+    const rendered = renders.flat().join("").replaceAll(" ", "")
+    expect(renders.every((lines) => lines.length === 1)).toBe(true)
+    expect(rendered).toContain("Context")
+    expect(rendered).toContain("QUESTION_START")
+    expect(rendered).toContain("QUESTION_END")
+    expect(rendered).toContain("ALPHA_START")
+    expect(rendered).toContain("ALPHA_END")
+    expect(rendered).toContain("BETA_START")
+    expect(rendered).toContain("BETA_END")
+    expect(result.content).toEqual([{ type: "text", text: "Context: Beta" }])
   })
 
   it("derives viewport height from components below the Ask", async () => {

@@ -43,6 +43,7 @@ interface ViewportLayout {
   readonly lines: readonly string[]
   readonly contextHeight: number
   readonly optionHeight: number
+  readonly singleRow: boolean
 }
 
 interface ComponentContainer extends Component {
@@ -156,6 +157,7 @@ function fitViewport(
   selectedIndex: number,
   contextOffset: number,
   selectedOptionOffset: number,
+  readingContext: boolean,
   height: number,
 ): ViewportLayout {
   if (layout.full.length <= height) {
@@ -163,6 +165,23 @@ function fitViewport(
       lines: layout.full,
       contextHeight: layout.context.length,
       optionHeight: layout.options[selectedIndex]?.length ?? 1,
+      singleRow: false,
+    }
+  }
+
+  if (height === 1) {
+    return {
+      lines: readingContext
+        ? fitContext(layout.context, contextOffset, 1)
+        : fitOptions(
+            layout.options,
+            selectedIndex,
+            selectedOptionOffset,
+            1,
+          ),
+      contextHeight: 1,
+      optionHeight: 1,
+      singleRow: true,
     }
   }
 
@@ -188,6 +207,7 @@ function fitViewport(
     ],
     contextHeight,
     optionHeight,
+    singleRow: false,
   }
 }
 
@@ -195,6 +215,8 @@ class SingleSelectAskComponent implements Component {
   private selectedIndex = 0
   private contextOffset = 0
   private selectedOptionOffset = 0
+  private readingContext = false
+  private singleRowViewport = false
   private contextLineCount = 0
   private contextViewportHeight = 0
   private optionHeights: readonly number[] = []
@@ -209,24 +231,24 @@ class SingleSelectAskComponent implements Component {
     const { keybindings, question } = this.options
 
     if (keybindings.matches(data, "tui.select.up")) {
-      if (this.contextOffset > 0) {
-        this.scrollContext(-1)
-      } else if (this.selectedOptionOffset > 0) {
-        this.scrollSelectedOption(-1)
-      } else {
-        this.select(Math.max(0, this.selectedIndex - 1))
-      }
+      this.select(Math.max(0, this.selectedIndex - 1))
       return
     }
 
     if (keybindings.matches(data, "tui.select.down")) {
-      if (this.selectedOptionOffset < this.getSelectedOptionMaxOffset()) {
-        this.scrollSelectedOption(1)
-      } else if (this.selectedIndex < question.options.length - 1) {
-        this.select(this.selectedIndex + 1)
-      } else if (this.contextOffset < this.getContextMaxOffset()) {
-        this.scrollContext(1)
-      }
+      this.select(
+        Math.min(question.options.length - 1, this.selectedIndex + 1),
+      )
+      return
+    }
+
+    if (keybindings.matches(data, "tui.select.pageUp")) {
+      this.scrollReadingViewport(-1)
+      return
+    }
+
+    if (keybindings.matches(data, "tui.select.pageDown")) {
+      this.scrollReadingViewport(1)
       return
     }
 
@@ -307,7 +329,10 @@ class SingleSelectAskComponent implements Component {
     })
     const help = wrapWithPrefix(
       " ",
-      theme.fg("dim", "↑↓ move/read • Enter select • Esc cancel"),
+      theme.fg(
+        "dim",
+        "↑↓ move • PgUp/PgDn read • Enter select • Esc cancel",
+      ),
     )
     const bottomBorder = theme.fg(
       "borderAccent",
@@ -336,6 +361,7 @@ class SingleSelectAskComponent implements Component {
       this.selectedIndex,
       this.contextOffset,
       this.selectedOptionOffset,
+      this.readingContext,
       viewportHeight,
     )
 
@@ -343,6 +369,7 @@ class SingleSelectAskComponent implements Component {
     this.contextViewportHeight = viewport.contextHeight
     this.optionHeights = optionLines.map((lines) => lines.length)
     this.optionViewportHeight = viewport.optionHeight
+    this.singleRowViewport = viewport.singleRow
     this.cachedWidth = renderWidth
     this.cachedHeight = viewportHeight
     this.cachedLines = viewport.lines
@@ -365,6 +392,75 @@ class SingleSelectAskComponent implements Component {
       (this.optionHeights[this.selectedIndex] ?? 0) -
         this.optionViewportHeight,
     )
+  }
+
+  private scrollReadingViewport(direction: -1 | 1): void {
+    if (this.singleRowViewport) {
+      this.scrollSingleRowViewport(direction)
+      return
+    }
+
+    if (direction === -1) {
+      if (this.selectedOptionOffset > 0) {
+        this.scrollSelectedOption(-1)
+      } else if (this.contextOffset > 0) {
+        this.scrollContext(-1)
+      }
+      return
+    }
+
+    if (this.contextOffset < this.getContextMaxOffset()) {
+      this.scrollContext(1)
+    } else if (
+      this.selectedOptionOffset < this.getSelectedOptionMaxOffset()
+    ) {
+      this.scrollSelectedOption(1)
+    }
+  }
+
+  private scrollSingleRowViewport(direction: -1 | 1): void {
+    if (this.readingContext) {
+      if (direction === -1 && this.contextOffset > 0) {
+        this.scrollContext(-1)
+      } else if (
+        direction === 1 &&
+        this.contextOffset < this.getContextMaxOffset()
+      ) {
+        this.scrollContext(1)
+      } else {
+        this.showSingleRowOption(
+          direction === -1 ? this.getSelectedOptionMaxOffset() : 0,
+        )
+      }
+      return
+    }
+
+    if (direction === -1 && this.selectedOptionOffset > 0) {
+      this.scrollSelectedOption(-1)
+    } else if (
+      direction === 1 &&
+      this.selectedOptionOffset < this.getSelectedOptionMaxOffset()
+    ) {
+      this.scrollSelectedOption(1)
+    } else {
+      this.showSingleRowContext(
+        direction === -1 ? this.getContextMaxOffset() : 0,
+      )
+    }
+  }
+
+  private showSingleRowContext(offset: number): void {
+    this.readingContext = true
+    this.contextOffset = offset
+    this.invalidate()
+    this.options.requestRender()
+  }
+
+  private showSingleRowOption(offset: number): void {
+    this.readingContext = false
+    this.selectedOptionOffset = offset
+    this.invalidate()
+    this.options.requestRender()
   }
 
   private scrollContext(direction: -1 | 1): void {
@@ -394,12 +490,17 @@ class SingleSelectAskComponent implements Component {
   }
 
   private select(index: number): void {
-    if (index === this.selectedIndex) {
+    const changed =
+      index !== this.selectedIndex ||
+      this.selectedOptionOffset !== 0 ||
+      this.readingContext
+    if (!changed) {
       return
     }
 
     this.selectedIndex = index
     this.selectedOptionOffset = 0
+    this.readingContext = false
     this.invalidate()
     this.options.requestRender()
   }

@@ -417,34 +417,25 @@ class SingleSelectAskComponent implements Component, Focusable {
         row.kind === "other"
           ? "Other"
           : sanitizeTerminalText(row.option.label)
-      const descriptionText =
-        row.kind === "other"
-          ? "Type a free-text Answer."
-          : sanitizeTerminalText(row.option.description)
       const label = selected
         ? theme.fg("accent", labelText)
         : theme.fg("text", labelText)
-      const lines = [
-        ...wrapWithPrefix(marker, label),
-        ...wrapWithPrefix(
-          "    ",
-          theme.fg("muted", descriptionText),
-        ),
-      ]
 
       if (row.kind === "other" && this.enteringOther) {
-        const inputPrefix = renderWidth > 4 ? "    " : ""
+        const labeledInputPrefix = `${marker}${label}: `
+        const inputPrefix =
+          visibleWidth(labeledInputPrefix) < renderWidth
+            ? labeledInputPrefix
+            : ""
         const inputWidth = Math.max(
           1,
           renderWidth - visibleWidth(inputPrefix),
         )
-        lines.push(
-          ...this.otherInput
-            .render(inputWidth)
-            .map((line) =>
-              truncateToWidth(`${inputPrefix}${line}`, renderWidth, ""),
-            ),
-        )
+        const lines = this.otherInput
+          .render(inputWidth)
+          .map((line) =>
+            truncateToWidth(`${inputPrefix}${line}`, renderWidth, ""),
+          )
         if (this.otherValidationError) {
           lines.push(
             ...wrapWithPrefix(
@@ -453,9 +444,20 @@ class SingleSelectAskComponent implements Component, Focusable {
             ),
           )
         }
+        return lines
       }
 
-      return lines
+      const descriptionText =
+        row.kind === "other"
+          ? "Type a free-text Answer."
+          : sanitizeTerminalText(row.option.description)
+      return [
+        ...wrapWithPrefix(marker, label),
+        ...wrapWithPrefix(
+          "    ",
+          theme.fg("muted", descriptionText),
+        ),
+      ]
     })
     const moveUp = formatKeybinding(keybindings, "tui.select.up")
     const moveDown = formatKeybinding(keybindings, "tui.select.down")

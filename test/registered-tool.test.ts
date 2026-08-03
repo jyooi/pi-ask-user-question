@@ -337,6 +337,32 @@ describe("ask_user_question execution seam", () => {
     })
   })
 
+  it("keeps Other input visible in a tight viewport", async () => {
+    let textEntry: string[] = []
+    const tool = captureTool()
+
+    const result = await tool.execute(
+      "ask-production-other-tight-viewport",
+      singleQuestionAsk,
+      undefined,
+      undefined,
+      interactiveContext((component) => {
+        component.handleInput?.("\x1b[B")
+        component.handleInput?.("\x1b[B")
+        component.handleInput?.("\r")
+        component.handleInput?.("Use Deno")
+        textEntry = component.render(18)
+        component.handleInput?.("\r")
+      }, 4),
+    )
+
+    expect(textEntry).toHaveLength(2)
+    expect(textEntry.join("\n")).toContain("Deno")
+    expect(result.content).toEqual([
+      { type: "text", text: 'Runtime: "Use Deno" (other)' },
+    ])
+  })
+
   it("keeps text entry open after an empty Other submission", async () => {
     let renderedAfterEmpty: string[] = []
     const tool = captureTool()

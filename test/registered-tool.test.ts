@@ -1580,6 +1580,74 @@ describe("ask_user_question execution seam", () => {
     })
   })
 
+  it("sanitizes bidi and zero-width characters without altering legitimate Unicode text", async () => {
+    const invisibleControls = [
+      "\u202a",
+      "\u202b",
+      "\u202c",
+      "\u202d",
+      "\u202e",
+      "\u2066",
+      "\u2067",
+      "\u2068",
+      "\u2069",
+      "\u200e",
+      "\u200f",
+      "\u200b",
+      "\u200c",
+      "\u200d",
+      "\u2060",
+      "\ufeff",
+    ].join("")
+    const ask: Ask = {
+      questions: [
+        {
+          header: "安全",
+          question: `中文${invisibleControls} 😺 Cafe\u0301`,
+          multiSelect: false,
+          options: [
+            {
+              label: `選択${invisibleControls} ✅ Cafe\u0301`,
+              description: `説明${invisibleControls} 🚀 Cafe\u0301`,
+            },
+            { label: "Other choice", description: "Another choice." },
+          ],
+        },
+      ],
+    }
+    let renderedLines: string[] = []
+    const tool = captureTool()
+
+    const result = await tool.execute(
+      "ask-production-invisible-controls",
+      ask,
+      undefined,
+      undefined,
+      interactiveContext((component) => {
+        renderedLines = component.render(80)
+        component.handleInput?.("\r")
+      }),
+    )
+
+    const rendered = renderedLines.join("\n")
+    expect(rendered).not.toMatch(/[\u202a-\u202e\u2066-\u2069\u200e\u200f\u200b-\u200d\u2060\ufeff]/u)
+    expect(rendered).toContain("中文 😺 Cafe\u0301")
+    expect(rendered).toContain("選択 ✅ Cafe\u0301")
+    expect(rendered).toContain("説明 🚀 Cafe\u0301")
+    expect(result.content).toEqual([
+      { type: "text", text: "安全: 選択 ✅ Cafe\u0301" },
+    ])
+    expect(result.details).toEqual({
+      answers: [
+        {
+          header: "安全",
+          question: `中文${invisibleControls} 😺 Cafe\u0301`,
+          selectedLabels: [`選択${invisibleControls} ✅ Cafe\u0301`],
+        },
+      ],
+    })
+  })
+
   it("throws a declined error when Escape cancels the production AskUI Layer", async () => {
     const tool = captureTool()
 

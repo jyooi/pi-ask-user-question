@@ -192,14 +192,14 @@ The registered-tool suite covers non-TUI errors and schema bounds.
 It also covers cancellation, abort cleanup, serialization, sanitization, transcript rendering, and viewport edge cases.
 
 The release candidate parent ran after the manual pass.
-`bun test` returned 45 passing tests, zero failures, and 198 assertions.
+`bun run test` returned 45 passing tests, zero failures, and 198 assertions.
 Biome checked ten files without diagnostics.
 TypeScript returned zero errors.
 
 The release checks are:
 
 ```sh
-bun test
+bun run test
 bun run lint
 bun run typecheck
 ```

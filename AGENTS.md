@@ -4,7 +4,7 @@ This file is the project's committed home for project-intrinsic agent knowledge:
 
 - Use the domain vocabulary from `CONTEXT.md` in code, tests, and documentation.
 - Treat `.scratch/ask-user-question/spec.md` and its ticket files as authoritative scope.
-- Run `bun test`, `bun run lint`, and `bun run typecheck` before each commit.
+- Run `bun run test`, `bun run lint`, and `bun run typecheck` before each commit.
 
 ## Maintaining this file
 

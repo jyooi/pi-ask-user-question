@@ -11,7 +11,7 @@ This is the walking skeleton: no real UI yet, but the whole path is testable at 
 **Status:** ready-for-agent
 
 - [ ] Git repo initialized, work on a feature branch, never on the default branch.
-- [ ] Bun, TypeScript, Effect, and Vitest are set up, and `bun test` runs green.
+- [ ] Bun, TypeScript, Effect, and Vitest are set up, and `bun run test` runs green.
 - [ ] The package installs with a local path source and pi lists the extension.
 - [ ] The extension factory accepts an optional AskUI Layer override (ADR 0002).
 - [ ] The TypeBox schema enforces one to four Questions, two to four Options, and the twelve-character Header bound.

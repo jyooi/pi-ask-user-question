@@ -205,7 +205,7 @@ Install dependencies and run all checks:
 
 ```sh
 bun install
-bun test
+bun run test
 bun run lint
 bun run typecheck
 ```

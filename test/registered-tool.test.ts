@@ -61,6 +61,39 @@ const multiSelectAsk: Ask = {
   ],
 }
 
+const fourQuestionAsk: Ask = {
+  questions: [
+    singleQuestionAsk.questions[0]!,
+    {
+      header: "Deploy",
+      question: "Where should this package run?",
+      multiSelect: false,
+      options: [
+        { label: "Local", description: "Run it on this machine." },
+        { label: "Cloud", description: "Run it on hosted infrastructure." },
+      ],
+    },
+    {
+      header: "Tests",
+      question: "When should the test suite run?",
+      multiSelect: false,
+      options: [
+        { label: "Commit", description: "Run it before each commit." },
+        { label: "CI", description: "Run it in continuous integration." },
+      ],
+    },
+    {
+      header: "Theme",
+      question: "Which interface theme should this package use?",
+      multiSelect: false,
+      options: [
+        { label: "Light", description: "Use a light background." },
+        { label: "Dark", description: "Use a dark background." },
+      ],
+    },
+  ],
+}
+
 function stubAskUILayer(service: AskUIService) {
   return Layer.succeed(AskUI, service)
 }
@@ -157,6 +190,7 @@ function interactiveContext(
   rowsAfterComponent: readonly number[] = [2],
   keybindingOverrides: KeybindingsConfig = {},
   onClose?: () => void,
+  onTheme?: (theme: Theme) => void,
 ): ExtensionContext {
   const tui = {
     children: [] as Component[],
@@ -164,10 +198,11 @@ function interactiveContext(
     terminal: { rows: terminalRows },
   } as unknown as TUI
   const theme = {
-    fg: (_color: string, text: string) => text,
-    bg: (_color: string, text: string) => text,
-    bold: (text: string) => text,
+    fg: vi.fn((_color: string, text: string) => text),
+    bg: vi.fn((_color: string, text: string) => text),
+    bold: vi.fn((text: string) => text),
   } as unknown as Theme
+  onTheme?.(theme)
   const keybindings = new KeybindingsManager(
     TUI_KEYBINDINGS,
     keybindingOverrides,
@@ -640,6 +675,155 @@ describe("ask_user_question execution seam", () => {
         undefined,
         undefined,
         context("tui"),
+      ),
+    ).rejects.toThrow(/user declined.*do not repeat ask_user_question/i)
+  })
+
+  it("returns four Answers in Ask order and renders every Header chip", async () => {
+    let theme: Theme | undefined
+    const activeHeaders: string[] = []
+    const renderedHeaders: string[][] = []
+    const tool = captureTool()
+
+    const result = await tool.execute(
+      "ask-production-four-questions",
+      fourQuestionAsk,
+      undefined,
+      undefined,
+      interactiveContext(
+        (component) => {
+          for (const [index] of fourQuestionAsk.questions.entries()) {
+            const lines = component.render(100)
+            renderedHeaders.push(lines)
+            if (!theme) {
+              throw new Error("The test needs the component Theme")
+            }
+            const background = theme.bg as unknown as {
+              readonly mock: {
+                readonly calls: readonly (readonly [string, string])[]
+              }
+              readonly mockClear: () => void
+            }
+            const activeCall = background.mock.calls.findLast(
+              ([color]) => color === "selectedBg",
+            )
+            activeHeaders.push(String(activeCall?.[1]))
+            background.mockClear()
+
+            if (index % 2 === 1) {
+              component.handleInput?.("\x1b[B")
+            }
+            component.handleInput?.("\r")
+          }
+        },
+        24,
+        [2],
+        {},
+        undefined,
+        (componentTheme) => {
+          theme = componentTheme
+        },
+      ),
+    )
+
+    for (const lines of renderedHeaders) {
+      const rendered = lines.join("\n")
+      for (const question of fourQuestionAsk.questions) {
+        expect(rendered).toContain(question.header)
+      }
+    }
+    expect(activeHeaders).toEqual([
+      " Runtime ",
+      " Deploy ",
+      " Tests ",
+      " Theme ",
+    ])
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: "Runtime: Bun\nDeploy: Cloud\nTests: Commit\nTheme: Dark",
+        },
+      ],
+      details: {
+        answers: [
+          {
+            header: "Runtime",
+            question: "Which runtime should this package use?",
+            selectedLabels: ["Bun"],
+          },
+          {
+            header: "Deploy",
+            question: "Where should this package run?",
+            selectedLabels: ["Cloud"],
+          },
+          {
+            header: "Tests",
+            question: "When should the test suite run?",
+            selectedLabels: ["Commit"],
+          },
+          {
+            header: "Theme",
+            question: "Which interface theme should this package use?",
+            selectedLabels: ["Dark"],
+          },
+        ],
+      },
+    })
+  })
+
+  it("lets the user revise an answered Question before the last Answer", async () => {
+    let renderedHelp: string[] = []
+    const tool = captureTool()
+
+    const result = await tool.execute(
+      "ask-production-revise-answer",
+      fourQuestionAsk,
+      undefined,
+      undefined,
+      interactiveContext(
+        (component) => {
+          renderedHelp = component.render(100)
+          component.handleInput?.("\r")
+          component.handleInput?.("h")
+          component.handleInput?.("\x1b[B")
+          component.handleInput?.("\r")
+          component.handleInput?.("\r")
+          component.handleInput?.("\r")
+          component.handleInput?.("\r")
+        },
+        24,
+        [2],
+        {
+          "tui.editor.cursorLeft": "h",
+          "tui.editor.cursorRight": "l",
+        },
+      ),
+    )
+
+    expect(renderedHelp.join("\n")).toContain("Question h / l")
+    expect(result.content).toEqual([
+      {
+        type: "text",
+        text: "Runtime: Node\nDeploy: Local\nTests: Commit\nTheme: Light",
+      },
+    ])
+    expect(result.details?.answers[0]?.selectedLabels).toEqual(["Node"])
+  })
+
+  it("cancels the whole Ask after a partial multi-Question Answer", async () => {
+    const tool = captureTool()
+
+    await expect(
+      tool.execute(
+        "ask-production-multi-cancel",
+        fourQuestionAsk,
+        undefined,
+        undefined,
+        interactiveContext((component) => {
+          component.handleInput?.("\r")
+          component.handleInput?.("\x1b")
+        }),
       ),
     ).rejects.toThrow(/user declined.*do not repeat ask_user_question/i)
   })

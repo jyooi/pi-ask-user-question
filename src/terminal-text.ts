@@ -29,6 +29,16 @@ function skipControlString(text: string, start: number): number {
   return text.length
 }
 
+function isUnsafeInvisibleCharacter(code: number): boolean {
+  return (
+    (code >= 0x200b && code <= 0x200f) ||
+    (code >= 0x202a && code <= 0x202e) ||
+    code === 0x2060 ||
+    (code >= 0x2066 && code <= 0x2069) ||
+    code === 0xfeff
+  )
+}
+
 function skipControlSequence(text: string, start: number): number {
   let index = start
   while (index < text.length) {
@@ -72,7 +82,11 @@ export function sanitizeTerminalText(text: string): string {
       index = skipControlString(text, index + 1)
       continue
     }
-    if (code < 0x20 || (code >= 0x7f && code <= 0x9f)) {
+    if (
+      code < 0x20 ||
+      (code >= 0x7f && code <= 0x9f) ||
+      isUnsafeInvisibleCharacter(code)
+    ) {
       index += 1
       continue
     }

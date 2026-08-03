@@ -31,7 +31,7 @@ The vocabulary for Ask, Question, Header, Option, Other, Answer, and AskUI is de
 4. As a pi user, I want multiSelect Questions, so that I can pick several non-exclusive choices at once.
 5. As a pi user, I want up to four Questions in one Ask, so that related decisions arrive together.
 6. As a pi user, I want a Header chip on each Question, so that I see the topic of each decision at a glance.
-7. As a pi user, I want to cancel the whole Ask with Escape, so that I can decline without answering any part of it.
+7. As a pi user, I want to cancel the whole Ask with Escape from the Option list, so that I can decline without answering any part of it.
 8. As a pi user, I want readable transcript rendering of each Ask, so that I can review past decisions.
 9. As a pi user, I want an aborted agent turn to dismiss an open Ask, so that no stale dialog blocks the editor.
 10. As a model, I want a tool schema identical in shape to AskUserQuestion, so that my calls validate on the first try.
@@ -57,7 +57,7 @@ The vocabulary for Ask, Question, Header, Option, Other, Answer, and AskUI is de
 - The core flow is an Effect program with typed errors `UserCancelled` and `NoInteractiveUI` (ADR 0002).
 - All terminal interaction sits behind an `AskUI` service tag. The production Layer renders a custom pi-tui component through `ctx.ui.custom()`. The extension factory accepts an optional AskUI Layer override for tests.
 - The tool is TUI-only (ADR 0001). Outside `ctx.mode === "tui"` it throws, and the error text tells the model that no interactive user is available.
-- Cancel is all-or-nothing. Escape anywhere raises `UserCancelled`, and the tool result is an error that tells the model the user declined and not to repeat the Ask immediately.
+- Canceling an Ask is all-or-nothing, and the tool result is an error that tells the model the user declined and not to repeat the Ask immediately. Tickets 02, 03, and 05 own Escape behavior for Option lists, Other text entry, and multi-Question Asks.
 - On success the text content is one line per Question: the Header, a colon, then the chosen Label or Labels. Other Answers appear quoted with an `(other)` marker.
 - The result `details` carry the full structured data: one entry per Question with header, question, selected labels, and optional other text.
 - Pi runs tool calls in parallel by default, so concurrent Asks must serialize. A per-session queue shows one Ask at a time.

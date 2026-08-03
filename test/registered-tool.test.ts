@@ -1,8 +1,16 @@
 import type {
   ExtensionAPI,
   ExtensionContext,
+  Theme,
   ToolDefinition,
 } from "@earendil-works/pi-coding-agent"
+import {
+  Key,
+  matchesKey,
+  type Component,
+  type KeybindingsManager,
+  type TUI,
+} from "@earendil-works/pi-tui"
 import { Effect, Layer } from "effect"
 import { Value } from "typebox/value"
 import { describe, expect, it, vi } from "vitest"
@@ -59,6 +67,53 @@ function captureTool(layer?: Layer.Layer<AskUI>) {
 
 function context(mode: ExtensionContext["mode"]): ExtensionContext {
   return { mode } as ExtensionContext
+}
+
+function interactiveContext(
+  drive: (component: Component) => void,
+): ExtensionContext {
+  const tui = { requestRender: vi.fn() } as unknown as TUI
+  const theme = {
+    fg: (_color: string, text: string) => text,
+    bg: (_color: string, text: string) => text,
+    bold: (text: string) => text,
+  } as unknown as Theme
+  const keybindings = {
+    matches(data: string, binding: string) {
+      const keys = {
+        "tui.select.up": [Key.up],
+        "tui.select.down": [Key.down],
+        "tui.select.confirm": [Key.enter],
+        "tui.select.cancel": [Key.escape],
+      }[binding]
+      return keys?.some((key) => matchesKey(data, key)) ?? false
+    },
+  } as KeybindingsManager
+  const ui = {
+    custom<T>(
+      factory: (
+        tui: TUI,
+        theme: Theme,
+        keybindings: KeybindingsManager,
+        done: (result: T) => void,
+      ) => Component | Promise<Component>,
+    ): Promise<T> {
+      return new Promise<T>((resolve, reject) => {
+        void Promise.resolve(factory(tui, theme, keybindings, resolve)).then(
+          (component) => {
+            try {
+              drive(component)
+            } catch (error) {
+              reject(error)
+            }
+          },
+          reject,
+        )
+      })
+    },
+  }
+
+  return { mode: "tui", ui } as unknown as ExtensionContext
 }
 
 describe("ask_user_question registration", () => {
@@ -167,18 +222,48 @@ describe("ask_user_question execution seam", () => {
     ).rejects.toThrow(/user declined.*do not repeat ask_user_question/i)
   })
 
-  it("throws a missing UI error from the scaffold AskUI Layer", async () => {
+  it("returns the highlighted Option through the production AskUI Layer", async () => {
+    const tool = captureTool()
+
+    const result = await tool.execute(
+      "ask-production",
+      singleQuestionAsk,
+      undefined,
+      undefined,
+      interactiveContext((component) => {
+        component.handleInput?.("\x1b[B")
+        component.handleInput?.("\r")
+      }),
+    )
+
+    expect(result).toEqual({
+      content: [{ type: "text", text: "Runtime: Node" }],
+      details: {
+        answers: [
+          {
+            header: "Runtime",
+            question: "Which runtime should this package use?",
+            selectedLabels: ["Node"],
+          },
+        ],
+      },
+    })
+  })
+
+  it("throws a declined error when Escape cancels the production AskUI Layer", async () => {
     const tool = captureTool()
 
     await expect(
       tool.execute(
-        "ask-missing-ui",
+        "ask-production-cancel",
         singleQuestionAsk,
         undefined,
         undefined,
-        context("tui"),
+        interactiveContext((component) => {
+          component.handleInput?.("\x1b")
+        }),
       ),
-    ).rejects.toThrow(/no interactive user is available/i)
+    ).rejects.toThrow(/user declined.*do not repeat ask_user_question/i)
   })
 
   it("maps the execute AbortSignal to Effect interruption", async () => {
@@ -208,12 +293,15 @@ describe("ask_user_question execution seam", () => {
       undefined,
       context("tui"),
     )
-    const rejection = expect(execution).rejects.toThrow()
+    const outcome = execution.then(
+      () => undefined,
+      (error: unknown) => error,
+    )
 
     await started
     controller.abort()
 
-    await rejection
+    expect(await outcome).toBeInstanceOf(Error)
     expect(interruptionFinalizerRan).toBe(true)
   })
 

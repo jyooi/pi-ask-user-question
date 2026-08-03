@@ -1,5 +1,5 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent"
-import { Effect, Layer } from "effect"
+import { Effect } from "effect"
 
 import {
   AskUI,
@@ -8,15 +8,12 @@ import {
   type Answer,
   type AskUILayer,
 } from "./ask-ui.js"
+import { createLiveAskUILayer } from "./live-ask-ui.js"
 import {
   AskParameters,
   type Ask,
   type AskResultDetails,
 } from "./schema.js"
-
-const scaffoldAskUILayer: AskUILayer = Layer.succeed(AskUI, {
-  ask: () => Effect.fail(new NoInteractiveUI()),
-})
 
 function askProgram(ask: Ask, mode: ExtensionContext["mode"]) {
   if (mode !== "tui") {
@@ -109,7 +106,7 @@ async function executeAsk(
 
 export default function createAskUserQuestionExtension(
   pi: ExtensionAPI,
-  askUILayer: AskUILayer = scaffoldAskUILayer,
+  askUILayer?: AskUILayer,
 ) {
   pi.registerTool<typeof AskParameters, AskResultDetails>({
     name: "ask_user_question",
@@ -124,7 +121,12 @@ export default function createAskUserQuestionExtension(
     ],
     parameters: AskParameters,
     execute: async (_toolCallId, params, signal, _onUpdate, ctx) =>
-      executeAsk(params, ctx.mode, signal, askUILayer),
+      executeAsk(
+        params,
+        ctx.mode,
+        signal,
+        askUILayer ?? createLiveAskUILayer(ctx.ui),
+      ),
   })
 }
 

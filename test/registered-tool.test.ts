@@ -369,6 +369,32 @@ describe("ask_user_question transcript rendering", () => {
     },
   )
 
+  it("renders selected Labels alongside Other text", () => {
+    const tool = captureTool()
+    const result: AskToolResult = {
+      content: [
+        {
+          type: "text",
+          text: 'Checks: Lint, Types, "Run security scans" (other)',
+        },
+      ],
+      details: {
+        answers: [
+          {
+            header: "Checks",
+            question: "Which checks should this package run?",
+            selectedLabels: ["Lint", "Types"],
+            otherText: "Run security scans",
+          },
+        ],
+      },
+    }
+
+    expect(renderResult(tool, multiSelectAsk, result, false)).toBe(
+      ' Checks  Lint, Types, "Run security scans" (other)',
+    )
+  })
+
   it("renders declined and no-user errors clearly", () => {
     const tool = captureTool()
     const errors = [
@@ -524,6 +550,45 @@ describe("ask_user_question execution seam", () => {
             header: "Checks",
             question: "Which checks should this package run?",
             selectedLabels: ["Lint", "Types"],
+          },
+        ],
+      },
+    })
+  })
+
+  it("returns selected Labels with Other text through the AskUI seam", async () => {
+    const answers: readonly Answer[] = [
+      {
+        selectedLabels: ["Lint", "Types"],
+        otherText: "Run security scans",
+      },
+    ]
+    const tool = captureTool(
+      stubAskUILayer({ ask: () => Effect.succeed(answers) }),
+    )
+
+    const result = await tool.execute(
+      "ask-multiselect-other-seam",
+      multiSelectAsk,
+      undefined,
+      undefined,
+      context("tui"),
+    )
+
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: 'Checks: Lint, Types, "Run security scans" (other)',
+        },
+      ],
+      details: {
+        answers: [
+          {
+            header: "Checks",
+            question: "Which checks should this package run?",
+            selectedLabels: ["Lint", "Types"],
+            otherText: "Run security scans",
           },
         ],
       },
@@ -707,6 +772,45 @@ describe("ask_user_question execution seam", () => {
             header: "Checks",
             question: "Which checks should this package run?",
             selectedLabels: [],
+            otherText: "Run security scans",
+          },
+        ],
+      },
+    })
+  })
+
+  it("preserves selected Labels when Other adds free text", async () => {
+    const tool = captureTool()
+
+    const result = await tool.execute(
+      "ask-production-multiselect-labels-and-other",
+      multiSelectAsk,
+      undefined,
+      undefined,
+      interactiveContext((component) => {
+        component.handleInput?.(" ")
+        component.handleInput?.("\x1b[B")
+        component.handleInput?.("\x1b[B")
+        component.handleInput?.("\x1b[B")
+        component.handleInput?.("\r")
+        component.handleInput?.("Run security scans")
+        component.handleInput?.("\r")
+      }),
+    )
+
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: 'Checks: Lint, "Run security scans" (other)',
+        },
+      ],
+      details: {
+        answers: [
+          {
+            header: "Checks",
+            question: "Which checks should this package run?",
+            selectedLabels: ["Lint"],
             otherText: "Run security scans",
           },
         ],

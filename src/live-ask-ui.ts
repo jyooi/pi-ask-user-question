@@ -370,11 +370,7 @@ class QuestionAskComponent implements Component, Focusable {
           this.refresh()
         } else {
           this.options.done({
-            selectedLabels: question.options
-              .filter((_option, index) =>
-                this.selectedOptionIndexes.has(index),
-              )
-              .map((option) => option.label),
+            selectedLabels: this.getSelectedLabels(),
           })
         }
       } else if (selected) {
@@ -616,7 +612,18 @@ class QuestionAskComponent implements Component, Focusable {
       return
     }
 
-    this.options.done({ selectedLabels: [], otherText })
+    this.options.done({
+      selectedLabels: this.options.question.multiSelect
+        ? this.getSelectedLabels()
+        : [],
+      otherText,
+    })
+  }
+
+  private getSelectedLabels(): readonly string[] {
+    return this.options.question.options
+      .filter((_option, index) => this.selectedOptionIndexes.has(index))
+      .map((option) => option.label)
   }
 
   private refresh(): void {

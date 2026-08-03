@@ -35,15 +35,18 @@ function declinedAskError(): Error {
 }
 
 function formatAnswer(answer: Answer): string {
+  const parts = answer.selectedLabels.map(sanitizeTerminalText)
   if (answer.otherText !== undefined) {
-    return `${JSON.stringify(sanitizeTerminalText(answer.otherText))} (other)`
+    parts.push(
+      `${JSON.stringify(sanitizeTerminalText(answer.otherText))} (other)`,
+    )
   }
 
-  if (answer.selectedLabels.length === 0) {
+  if (parts.length === 0) {
     throw new Error("AskUI returned an empty Answer")
   }
 
-  return answer.selectedLabels.map(sanitizeTerminalText).join(", ")
+  return parts.join(", ")
 }
 
 function formatResult(ask: Ask, answers: readonly Answer[]) {

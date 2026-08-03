@@ -20,11 +20,14 @@ _Avoid_: title, tag
 One selectable choice inside a Question. It has a Label and a Description.
 
 **Other**:
-The free-text escape hatch that the UI appends to every Question. The user types a custom answer instead of picking an Option.
+The free-text escape hatch that the UI appends to every Question.
+The user types free text when the listed Options do not fully express the Answer.
 _Avoid_: custom option, write-in
 
 **Answer**:
-The resolved choice for one Question. It is one Label, several Labels when multiSelect is on, or free text from Other.
+The resolved choice for one Question.
+It contains Labels, Other text, or both when multiSelect is on.
+Other remains exclusive for a single-select Question.
 
 **AskUI**:
 The Effect service that presents an Ask and returns Answers. The production Layer renders pi-tui components. Tests provide a stub Layer.

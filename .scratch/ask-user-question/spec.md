@@ -58,8 +58,12 @@ The vocabulary for Ask, Question, Header, Option, Other, Answer, and AskUI is de
 - All terminal interaction sits behind an `AskUI` service tag. The production Layer renders a custom pi-tui component through `ctx.ui.custom()`. The extension factory accepts an optional AskUI Layer override for tests.
 - The tool is TUI-only (ADR 0001). Outside `ctx.mode === "tui"` it throws, and the error text tells the model that no interactive user is available.
 - Canceling an Ask is all-or-nothing, and the tool result is an error that tells the model the user declined and not to repeat the Ask immediately. Tickets 02, 03, and 05 own Escape behavior for Option lists, Other text entry, and multi-Question Asks.
-- On success the text content is one line per Question: the Header, a colon, then the chosen Label or Labels. Other Answers appear quoted with an `(other)` marker.
-- The result `details` carry the full structured data: one entry per Question with header, question, selected labels, and optional other text.
+- On success, text content contains one Header and Answer line per Question.
+- Chosen Labels use comma separators.
+- Other text appears quoted with an `(other)` marker.
+- A multiSelect Answer can contain chosen Labels and Other text together.
+- Other remains exclusive for a single-select Question.
+- Result `details` preserve chosen Labels as an array and optional Other text.
 - Pi runs tool calls in parallel by default, so concurrent Asks must serialize. A per-session queue shows one Ask at a time.
 - Pi's `AbortSignal` maps to Effect interruption. An abort dismisses the open component and resolves as a declined Ask.
 - The tool defines `promptSnippet` and `promptGuidelines`, and each guideline names `ask_user_question` explicitly.

@@ -28,19 +28,25 @@ function textComponent(
 }
 
 function formatAnswer(answer: AnswerDetails, theme: Theme): string {
+  const parts: string[] = []
+  if (answer.selectedLabels.length > 0) {
+    parts.push(
+      theme.fg(
+        "toolOutput",
+        answer.selectedLabels.map(displayText).join(", "),
+      ),
+    )
+  }
   if (answer.otherText !== undefined) {
     const other = JSON.stringify(displayText(answer.otherText))
-    return `${theme.fg("toolOutput", other)} ${theme.fg("muted", "(other)")}`
+    parts.push(
+      `${theme.fg("toolOutput", other)} ${theme.fg("muted", "(other)")}`,
+    )
   }
 
-  if (answer.selectedLabels.length === 0) {
-    return theme.fg("warning", "No Answer")
-  }
-
-  return theme.fg(
-    "toolOutput",
-    answer.selectedLabels.map(displayText).join(", "),
-  )
+  return parts.length > 0
+    ? parts.join(", ")
+    : theme.fg("warning", "No Answer")
 }
 
 function hasAnswerDetails(details: unknown): details is AskResultDetails {

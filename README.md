@@ -1,9 +1,9 @@
 # pi-ask-user-question
 
-## Single selection answer 
+## Single selection
 <img width="1186" height="335" alt="Screenshot 2026-08-03 at 10 26 23 PM" src="https://github.com/user-attachments/assets/be93cb42-cf23-4bf8-8d6f-2c04f79a4480" />
 
-## Multiple tick selection answer
+## Multiple ticks selection
 <img width="1052" height="357" alt="Screenshot 2026-08-03 at 10 25 32 PM" src="https://github.com/user-attachments/assets/b1d8368f-23b5-415f-ac5b-eab0b555fc7e" />
 
 `pi-ask-user-question` gives pi agents a structured way to ask users for decisions.

@@ -193,8 +193,8 @@ See [ADR 0002](docs/adr/0002-effect-core-with-askui-service.md) for the AskUI se
 ## Terminal safety
 
 Model-provided display text passes through a terminal sanitization boundary.
-The boundary removes ANSI, C1, and other terminal control sequences before TUI or transcript output.
-It also converts tabs, newlines, and carriage returns to spaces.
+The boundary removes ANSI and C0/C1 terminal controls, Unicode bidirectional controls, and zero-width characters before TUI or transcript output.
+It converts tabs, newlines, and carriage returns to spaces while preserving other Unicode text, including CJK, emoji, and combining accents.
 
 This boundary covers Headers, Question text, Option Labels, Option Descriptions, and displayed Answer text.
 Structured result details retain the original model values.

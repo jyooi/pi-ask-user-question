@@ -7,7 +7,8 @@ Result: pass
 ## Environment
 
 - pi `0.83.0`
-- Package implementation commit `ef503b4`
+- Runtime QA commit `ef503b4`
+- Release candidate parent `e5aa509`
 - Model `openai-codex/gpt-5.6-sol`
 - Tmux PTY at `100x30`
 - Tight viewport at `18x8`
@@ -158,7 +159,7 @@ Result: pass
 
 ### Tight viewport
 
-The Runtime Ask was resized from `100x30` to `18x8`.
+The Viewport Ask was resized from `100x30` to `18x8`.
 The Ask stayed above the pi status area.
 The active Header, Question context, highlighted Option, help, border, and status shared the narrow viewport.
 
@@ -175,7 +176,7 @@ Result: pass
 
 ### Terminal sanitization
 
-A QA-only `tool_call` hook injected OSC, CSI, newline, and tab control text.
+A QA-only `tool_call` hook injected OSC and CSI control text.
 The live Ask displayed Run, Choose safely, Bun, and Fast runtime.
 No hostile payload appeared in the captured raw TUI stream.
 The result text showed `Run: Bun`.
@@ -189,6 +190,11 @@ Result: pass
 
 The registered-tool suite covers non-TUI errors and schema bounds.
 It also covers cancellation, abort cleanup, serialization, sanitization, transcript rendering, and viewport edge cases.
+
+The release candidate parent ran after the manual pass.
+`bun test` returned 45 passing tests, zero failures, and 198 assertions.
+Biome checked ten files without diagnostics.
+TypeScript returned zero errors.
 
 The release checks are:
 

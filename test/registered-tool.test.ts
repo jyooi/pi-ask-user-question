@@ -29,6 +29,8 @@ import {
 } from "../src/schema.js"
 
 type AskTool = ToolDefinition<typeof AskParameters, AskResultDetails>
+type AskRenderContext = Parameters<NonNullable<AskTool["renderCall"]>>[2]
+type AskToolResult = Parameters<NonNullable<AskTool["renderResult"]>>[0]
 
 const singleQuestionAsk: Ask = {
   questions: [
@@ -67,6 +69,71 @@ function captureTool(layer?: Layer.Layer<AskUI>) {
 
 function context(mode: ExtensionContext["mode"]): ExtensionContext {
   return { mode } as ExtensionContext
+}
+
+function transcriptTheme(): Theme {
+  return {
+    fg: vi.fn((_color: string, text: string) => text),
+    bg: vi.fn((_color: string, text: string) => text),
+    bold: vi.fn((text: string) => text),
+    inverse: vi.fn((text: string) => text),
+  } as unknown as Theme
+}
+
+function renderContext(
+  args: Ask,
+  overrides: Partial<AskRenderContext> = {},
+): AskRenderContext {
+  return {
+    args,
+    toolCallId: "ask-render",
+    invalidate: vi.fn(),
+    lastComponent: undefined,
+    state: {},
+    cwd: process.cwd(),
+    executionStarted: true,
+    argsComplete: true,
+    isPartial: false,
+    expanded: false,
+    showImages: false,
+    isError: false,
+    ...overrides,
+  }
+}
+
+function renderCall(tool: AskTool, ask: Ask, expanded: boolean): string {
+  if (!tool.renderCall) {
+    throw new Error("ask_user_question has no call renderer")
+  }
+
+  return tool
+    .renderCall(ask, transcriptTheme(), renderContext(ask, { expanded }))
+    .render(100)
+    .map((line) => line.trimEnd())
+    .join("\n")
+}
+
+function renderResult(
+  tool: AskTool,
+  ask: Ask,
+  result: AskToolResult,
+  expanded: boolean,
+  isError = false,
+): string {
+  if (!tool.renderResult) {
+    throw new Error("ask_user_question has no result renderer")
+  }
+
+  return tool
+    .renderResult(
+      result,
+      { expanded, isPartial: false },
+      transcriptTheme(),
+      renderContext(ask, { expanded, isError }),
+    )
+    .render(100)
+    .map((line) => line.trimEnd())
+    .join("\n")
 }
 
 function interactiveContext(
@@ -190,6 +257,174 @@ describe("ask_user_question registration", () => {
       }),
     ).toBe(true)
     expect(Value.Check(AskParameters, singleQuestionAsk)).toBe(true)
+  })
+})
+
+describe("ask_user_question transcript rendering", () => {
+  const twoQuestionAsk: Ask = {
+    questions: [
+      singleQuestionAsk.questions[0]!,
+      {
+        header: "Deploy",
+        question: "Where should this package run?",
+        multiSelect: false,
+        options: [
+          { label: "Local", description: "Run it on this machine." },
+          { label: "Cloud", description: "Run it on hosted infrastructure." },
+        ],
+      },
+    ],
+  }
+
+  it.each([false, true])(
+    "renders pending Header chips and Question text when expanded is %s",
+    (expanded) => {
+      const tool = captureTool()
+      const theme = transcriptTheme()
+      if (!tool.renderCall) {
+        throw new Error("ask_user_question has no call renderer")
+      }
+
+      const rendered = tool
+        .renderCall(
+          twoQuestionAsk,
+          theme,
+          renderContext(twoQuestionAsk, { expanded }),
+        )
+        .render(100)
+        .map((line) => line.trimEnd())
+        .join("\n")
+
+      expect(rendered).toContain("Runtime")
+      expect(rendered).toContain("Which runtime should this package use?")
+      expect(rendered).toContain("Deploy")
+      expect(rendered).toContain("Where should this package run?")
+      expect(rendered).not.toContain('"questions"')
+      expect(theme.inverse).toHaveBeenCalledWith(expect.any(String))
+      expect(theme.bg).not.toHaveBeenCalled()
+      expect(theme.fg).toHaveBeenCalledWith("toolTitle", expect.any(String))
+    },
+  )
+
+  it("renders safely before the model completes the Ask arguments", () => {
+    const tool = captureTool()
+    const partialAsk = {} as Ask
+
+    expect(() => renderCall(tool, partialAsk, false)).not.toThrow()
+    expect(renderCall(tool, partialAsk, false)).toBe("Ask User Question")
+  })
+
+  it.each([false, true])(
+    "renders one Header and Answer line when expanded is %s",
+    (expanded) => {
+      const tool = captureTool()
+      const result: AskToolResult = {
+        content: [
+          { type: "text", text: 'Runtime: "A custom runtime" (other)\nDeploy: Cloud' },
+        ],
+        details: {
+          answers: [
+            {
+              header: "Runtime",
+              question: "Which runtime should this package use?",
+              selectedLabels: [],
+              otherText: "A custom runtime",
+            },
+            {
+              header: "Deploy",
+              question: "Where should this package run?",
+              selectedLabels: ["Cloud"],
+            },
+          ],
+        },
+      }
+
+      const rendered = renderResult(
+        tool,
+        twoQuestionAsk,
+        result,
+        expanded,
+      )
+
+      expect(rendered.split("\n")).toEqual([
+        ' Runtime  "A custom runtime" (other)',
+        " Deploy  Cloud",
+      ])
+      expect(rendered).not.toContain('"answers"')
+    },
+  )
+
+  it("renders declined and no-user errors clearly", () => {
+    const tool = captureTool()
+    const errors = [
+      "The user declined this Ask. Do not repeat ask_user_question immediately. Continue using your own judgment.",
+      "No interactive user is available for ask_user_question. Continue using your own judgment.",
+    ]
+
+    for (const message of errors) {
+      const result = {
+        content: [{ type: "text", text: message }],
+        details: undefined,
+      } as unknown as AskToolResult
+      const rendered = renderResult(
+        tool,
+        singleQuestionAsk,
+        result,
+        false,
+        true,
+      )
+
+      expect(rendered.replaceAll("\n", " ")).toBe(message)
+      expect(rendered).not.toContain('"content"')
+    }
+  })
+
+  it("sanitizes every model-provided transcript string", () => {
+    const ask: Ask = {
+      questions: [
+        {
+          header: "Run\x1b]52;c;owned\x07",
+          question: "Choose\x1b[31m safely",
+          multiSelect: false,
+          options: [
+            { label: "Bun", description: "Fast runtime." },
+            { label: "Node", description: "Node runtime." },
+          ],
+        },
+      ],
+    }
+    const tool = captureTool()
+    const pending = renderCall(tool, ask, false)
+    const finished = renderResult(
+      tool,
+      ask,
+      {
+        content: [{ type: "text", text: "ignored raw result" }],
+        details: {
+          answers: [
+            {
+              header: "Run\x1b]52;c;owned\x07",
+              question: "Choose\x1b[31m safely",
+              selectedLabels: ["Bun\x1b[2J"],
+            },
+          ],
+        },
+      },
+      true,
+    )
+
+    for (const rendered of [pending, finished]) {
+      expect(
+        rendered
+          .split("\n")
+          .every((line) => !/[\u0000-\u001f\u007f-\u009f]/u.test(line)),
+      ).toBe(true)
+      expect(rendered).not.toContain("owned")
+      expect(rendered).not.toContain("[31m")
+      expect(rendered).not.toContain("[2J")
+    }
+    expect(pending).toContain("Choose safely")
+    expect(finished).toContain("Bun")
   })
 })
 

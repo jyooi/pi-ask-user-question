@@ -7,9 +7,13 @@ export interface Answer {
   readonly otherText?: string
 }
 
-export class UserCancelled extends Data.TaggedError("UserCancelled")<{}> {}
+export class UserCancelled extends Data.TaggedError("UserCancelled")<
+  Record<never, never>
+> {}
 
-export class NoInteractiveUI extends Data.TaggedError("NoInteractiveUI")<{}> {}
+export class NoInteractiveUI extends Data.TaggedError("NoInteractiveUI")<
+  Record<never, never>
+> {}
 
 export interface AskUIService {
   readonly ask: (

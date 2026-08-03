@@ -4,7 +4,6 @@ import { Effect } from "effect"
 import {
   AskUI,
   NoInteractiveUI,
-  UserCancelled,
   type Answer,
   type AskUILayer,
 } from "./ask-ui.js"

@@ -46,6 +46,21 @@ const singleQuestionAsk: Ask = {
   ],
 }
 
+const multiSelectAsk: Ask = {
+  questions: [
+    {
+      header: "Checks",
+      question: "Which checks should this package run?",
+      multiSelect: true,
+      options: [
+        { label: "Lint", description: "Check source formatting and style." },
+        { label: "Tests", description: "Run the automated test suite." },
+        { label: "Types", description: "Check static TypeScript types." },
+      ],
+    },
+  ],
+}
+
 function stubAskUILayer(service: AskUIService) {
   return Layer.succeed(AskUI, service)
 }
@@ -457,6 +472,64 @@ describe("ask_user_question execution seam", () => {
     })
   })
 
+  it("returns one Label for a multiSelect Answer through the AskUI seam", async () => {
+    const answers: readonly Answer[] = [{ selectedLabels: ["Tests"] }]
+    const tool = captureTool(
+      stubAskUILayer({ ask: () => Effect.succeed(answers) }),
+    )
+
+    const result = await tool.execute(
+      "ask-multiselect-one-seam",
+      multiSelectAsk,
+      undefined,
+      undefined,
+      context("tui"),
+    )
+
+    expect(result).toEqual({
+      content: [{ type: "text", text: "Checks: Tests" }],
+      details: {
+        answers: [
+          {
+            header: "Checks",
+            question: "Which checks should this package run?",
+            selectedLabels: ["Tests"],
+          },
+        ],
+      },
+    })
+  })
+
+  it("returns several Labels for a multiSelect Answer through the AskUI seam", async () => {
+    const answers: readonly Answer[] = [
+      { selectedLabels: ["Lint", "Types"] },
+    ]
+    const tool = captureTool(
+      stubAskUILayer({ ask: () => Effect.succeed(answers) }),
+    )
+
+    const result = await tool.execute(
+      "ask-multiselect-several-seam",
+      multiSelectAsk,
+      undefined,
+      undefined,
+      context("tui"),
+    )
+
+    expect(result).toEqual({
+      content: [{ type: "text", text: "Checks: Lint, Types" }],
+      details: {
+        answers: [
+          {
+            header: "Checks",
+            question: "Which checks should this package run?",
+            selectedLabels: ["Lint", "Types"],
+          },
+        ],
+      },
+    })
+  })
+
   it("returns a quoted Other Answer through the AskUI seam", async () => {
     const answers: readonly Answer[] = [
       { selectedLabels: [], otherText: "Use Deno" },
@@ -528,6 +601,113 @@ describe("ask_user_question execution seam", () => {
             header: "Runtime",
             question: "Which runtime should this package use?",
             selectedLabels: ["Node"],
+          },
+        ],
+      },
+    })
+  })
+
+  it("renders toggle markers and returns several selected Labels", async () => {
+    let initialRows: string[] = []
+    let toggledRows: string[] = []
+    const tool = captureTool()
+
+    const result = await tool.execute(
+      "ask-production-multiselect-several",
+      multiSelectAsk,
+      undefined,
+      undefined,
+      interactiveContext((component) => {
+        initialRows = component.render(80)
+        component.handleInput?.(" ")
+        component.handleInput?.("\x1b[B")
+        component.handleInput?.(" ")
+        toggledRows = component.render(80)
+        component.handleInput?.("\r")
+      }),
+    )
+
+    expect(initialRows.join("\n")).toContain("› [ ] Lint")
+    expect(initialRows.join("\n")).toContain("  [ ] Tests")
+    expect(initialRows.join("\n")).toContain("  [ ] Types")
+    expect(toggledRows.join("\n")).toContain("  [x] Lint")
+    expect(toggledRows.join("\n")).toContain("› [x] Tests")
+    expect(result).toEqual({
+      content: [{ type: "text", text: "Checks: Lint, Tests" }],
+      details: {
+        answers: [
+          {
+            header: "Checks",
+            question: "Which checks should this package run?",
+            selectedLabels: ["Lint", "Tests"],
+          },
+        ],
+      },
+    })
+  })
+
+  it("shows a hint until a multiSelect Answer contains a Label", async () => {
+    let renderedAfterEmpty: string[] = []
+    const tool = captureTool()
+
+    const result = await tool.execute(
+      "ask-production-multiselect-one",
+      multiSelectAsk,
+      undefined,
+      undefined,
+      interactiveContext((component) => {
+        component.handleInput?.(" ")
+        component.handleInput?.(" ")
+        component.handleInput?.("\r")
+        renderedAfterEmpty = component.render(80)
+        component.handleInput?.("\x1b[B")
+        component.handleInput?.(" ")
+        component.handleInput?.("\r")
+      }, 3),
+    )
+
+    expect(renderedAfterEmpty).toHaveLength(1)
+    expect(renderedAfterEmpty.join("\n")).toContain(
+      "Select at least one Option or choose Other.",
+    )
+    expect(result.content).toEqual([
+      { type: "text", text: "Checks: Tests" },
+    ])
+    expect(result.details?.answers[0]?.selectedLabels).toEqual(["Tests"])
+  })
+
+  it("accepts Other as a multiSelect Answer without selected Labels", async () => {
+    const tool = captureTool()
+
+    const result = await tool.execute(
+      "ask-production-multiselect-other",
+      multiSelectAsk,
+      undefined,
+      undefined,
+      interactiveContext((component) => {
+        component.handleInput?.("\x1b[B")
+        component.handleInput?.("\x1b[B")
+        component.handleInput?.("\x1b[B")
+        component.handleInput?.("\r")
+        component.handleInput?.("Run security scans")
+        component.handleInput?.("\r")
+      }),
+    )
+
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: 'Checks: "Run security scans" (other)',
+        },
+      ],
+      details: {
+        answers: [
+          {
+            header: "Checks",
+            question: "Which checks should this package run?",
+            selectedLabels: [],
+            otherText: "Run security scans",
           },
         ],
       },

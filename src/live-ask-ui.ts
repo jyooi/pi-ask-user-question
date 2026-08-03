@@ -6,7 +6,9 @@ import {
   type Component,
   type Focusable,
   Input,
+  Key,
   type KeybindingsManager,
+  matchesKey,
   type TUI,
   truncateToWidth,
   visibleWidth,
@@ -42,7 +44,7 @@ function getSelectableRows(question: Question): readonly SelectableRow[] {
   ]
 }
 
-interface SingleSelectComponentOptions {
+interface QuestionComponentOptions {
   readonly question: Question
   readonly theme: Theme
   readonly keybindings: KeybindingsManager
@@ -263,10 +265,12 @@ function fitViewport(
   }
 }
 
-class SingleSelectAskComponent implements Component, Focusable {
+class QuestionAskComponent implements Component, Focusable {
   private selectedIndex = 0
+  private selectedOptionIndexes = new Set<number>()
   private enteringOther = false
   private otherValidationError = false
+  private multiSelectValidationError = false
   private otherInput = new Input()
   private _focused = false
   private contextOffset = 0
@@ -285,7 +289,7 @@ class SingleSelectAskComponent implements Component, Focusable {
   private cachedHeight: number | undefined
   private cachedLines: readonly string[] | undefined
 
-  constructor(private readonly options: SingleSelectComponentOptions) {}
+  constructor(private readonly options: QuestionComponentOptions) {}
 
   get focused(): boolean {
     return this._focused
@@ -325,6 +329,14 @@ class SingleSelectAskComponent implements Component, Focusable {
 
     const rows = getSelectableRows(question)
 
+    if (question.multiSelect && matchesKey(data, Key.space)) {
+      const selected = rows[this.selectedIndex]
+      if (selected?.kind === "option") {
+        this.toggleOption(this.selectedIndex)
+      }
+      return
+    }
+
     if (keybindings.matches(data, "tui.select.up")) {
       this.select(Math.max(0, this.selectedIndex - 1))
       return
@@ -351,6 +363,20 @@ class SingleSelectAskComponent implements Component, Focusable {
       const selected = rows[this.selectedIndex]
       if (selected?.kind === "other") {
         this.enterOther()
+      } else if (selected && question.multiSelect) {
+        if (this.selectedOptionIndexes.size === 0) {
+          this.multiSelectValidationError = true
+          this.selectedOptionOffset = Number.MAX_SAFE_INTEGER
+          this.refresh()
+        } else {
+          this.options.done({
+            selectedLabels: question.options
+              .filter((_option, index) =>
+                this.selectedOptionIndexes.has(index),
+              )
+              .map((option) => option.label),
+          })
+        }
       } else if (selected) {
         this.options.done({
           selectedLabels: [selected.option.label],
@@ -412,7 +438,14 @@ class SingleSelectAskComponent implements Component, Focusable {
     )
     const optionLines = getSelectableRows(question).map((row, index) => {
       const selected = index === this.selectedIndex
-      const marker = selected ? theme.fg("accent", "› ") : "  "
+      const highlightMarker = selected ? theme.fg("accent", "› ") : "  "
+      const toggleMarker =
+        question.multiSelect && row.kind === "option"
+          ? this.selectedOptionIndexes.has(index)
+            ? theme.fg("accent", "[x] ")
+            : "[ ] "
+          : ""
+      const marker = `${highlightMarker}${toggleMarker}`
       const labelText =
         row.kind === "other"
           ? "Other"
@@ -451,13 +484,31 @@ class SingleSelectAskComponent implements Component, Focusable {
         row.kind === "other"
           ? "Type a free-text Answer."
           : sanitizeTerminalText(row.option.description)
-      return [
+      const detailPrefix =
+        question.multiSelect && row.kind === "option" ? "      " : "    "
+      const lines = [
         ...wrapWithPrefix(marker, label),
         ...wrapWithPrefix(
-          "    ",
+          detailPrefix,
           theme.fg("muted", descriptionText),
         ),
       ]
+      if (
+        question.multiSelect &&
+        selected &&
+        this.multiSelectValidationError
+      ) {
+        lines.push(
+          ...wrapWithPrefix(
+            detailPrefix,
+            theme.fg(
+              "warning",
+              "Select at least one Option or choose Other.",
+            ),
+          ),
+        )
+      }
+      return lines
     })
     const moveUp = formatKeybinding(keybindings, "tui.select.up")
     const moveDown = formatKeybinding(keybindings, "tui.select.down")
@@ -468,7 +519,9 @@ class SingleSelectAskComponent implements Component, Focusable {
     const cancel = formatKeybinding(keybindings, "tui.select.cancel")
     const helpText = this.enteringOther
       ? `submit ${submit} • back ${cancel}`
-      : `move ${moveUp} / ${moveDown} • read ${readUp} / ${readDown} • select ${confirm} • cancel ${cancel}`
+      : question.multiSelect
+        ? `move ${moveUp} / ${moveDown} • read ${readUp} / ${readDown} • toggle space • confirm ${confirm} • cancel ${cancel}`
+        : `move ${moveUp} / ${moveDown} • read ${readUp} / ${readDown} • select ${confirm} • cancel ${cancel}`
     const help = wrapWithPrefix(
       " ",
       theme.fg("dim", helpText),
@@ -525,9 +578,21 @@ class SingleSelectAskComponent implements Component, Focusable {
     this.cachedLines = undefined
   }
 
+  private toggleOption(index: number): void {
+    if (this.selectedOptionIndexes.has(index)) {
+      this.selectedOptionIndexes.delete(index)
+    } else {
+      this.selectedOptionIndexes.add(index)
+    }
+    this.multiSelectValidationError = false
+    this.selectedOptionOffset = 0
+    this.refresh()
+  }
+
   private enterOther(): void {
     this.enteringOther = true
     this.otherValidationError = false
+    this.multiSelectValidationError = false
     this.otherInput = new Input()
     this.otherInput.focused = this._focused
     this.selectedOptionOffset = 0
@@ -760,10 +825,8 @@ export function createLiveAskUILayer(
       if (!question) {
         return Effect.die(new Error("AskUI received an Ask without a Question."))
       }
-      if (ask.questions.length !== 1 || question.multiSelect) {
-        return Effect.die(
-          new Error("AskUI supports one single-select Question."),
-        )
+      if (ask.questions.length !== 1) {
+        return Effect.die(new Error("AskUI supports one Question."))
       }
 
       return Effect.async<Answer | null>((resume) => {
@@ -781,8 +844,8 @@ export function createLiveAskUILayer(
             }
             dismiss = () => complete(null)
 
-            let component: SingleSelectAskComponent
-            component = new SingleSelectAskComponent({
+            let component: QuestionAskComponent
+            component = new QuestionAskComponent({
               question,
               theme,
               keybindings,

@@ -80,11 +80,16 @@ The vocabulary for Ask, Question, Header, Option, Other, Answer, and AskUI is de
 - The pi-tui component below the seam gets manual QA in a live pi session.
 - Existing examples: none, this is a fresh repo. Pi's bundled example extensions serve as reference for the fake ExtensionAPI shape.
 
+## In Scope
+
+- npm publishing.
+  `@jyooi/pi-ask-user-question` 0.1.0 was published to npm as deliberate follow-up work.
+
 ## Out of Scope
 
 - RPC-mode fallback dialogs (rejected in ADR 0001).
 - Headless auto-answer or default answers in print/JSON mode.
-- npm publishing and release automation. Git install is enough for now.
+- Release automation.
 - Dialog timeouts and countdown dismissal.
 - Persistence of Answers outside the normal session transcript.
 - Overriding or replacing any built-in pi tool.

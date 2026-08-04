@@ -1,6 +1,6 @@
 {
   "name": "@jyooi/pi-ask-user-question",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A structured ask_user_question tool for interactive pi sessions.",
   "license": "MIT",
   "repository": {

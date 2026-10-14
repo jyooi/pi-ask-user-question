@@ -19,7 +19,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           registry-url: https://registry.npmjs.org
-      # The repository owner must add NPM_TOKEN as a GitHub Actions secret.
       - run: npm publish --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

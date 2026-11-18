@@ -1,0 +1,72 @@
+{
+  "syncCommit": "5a90f476b9d5c1882ec130efc730c60911463994",
+  "tool": {
+    "name": "TLC",
+    "version": "1.7.4",
+    "url": "https://github.com/tlaplus/tlaplus/releases/download/v1.7.4/tla2tools.jar",
+    "sha256": "936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88"
+  },
+  "model": {
+    "spec": "AskLifecycle.tla",
+    "specSha256": "ddabc281b1c9adac63a049841bad5e0655c729afbc5303f2053deac1bf6b0b25",
+    "config": "AskLifecycle.cfg",
+    "configSha256": "398a9a8fa3153a7361a7446fd94100e34f11afc5d09142b7b72d7e3c03753e69"
+  },
+  "covers": [
+    {
+      "file": "src/index.ts",
+      "functions": [
+        "askProgram",
+        "executeAsk",
+        "createAskUserQuestionExtension: askSemaphore"
+      ],
+      "sha256": "691c24ac1787e2793747b451e5fdcbf6349d321f423e8de4abe8934cb4583dd4"
+    },
+    {
+      "file": "src/live-ask-ui.ts",
+      "functions": [
+        "createLiveAskUILayer",
+        "AskComponent.answerQuestion"
+      ],
+      "sha256": "e061a126e9f9e89cb979e7378a2e7960468f7502791ef6553dad92895aeb062c"
+    }
+  ],
+  "properties": [
+    {
+      "name": "OneAskAtATime",
+      "status": "holds",
+      "break": {
+        "code": "src/index.ts executeAsk runs askProgram without semaphore.withPermits(1)",
+        "find": "  /\\ held = {}\n  /\\ held' = held \\cup {c}",
+        "replace": "  /\\ held' = held \\cup {c}"
+      }
+    },
+    {
+      "name": "NoStaleAsk",
+      "status": "holds",
+      "break": {
+        "code": "src/live-ask-ui.ts createLiveAskUILayer returns no canceler from Effect.async, so an interruption does not call dismiss",
+        "find": "  /\\ IF phase[c] = \"waiting\" /\\ ~settled[c]",
+        "replace": "  /\\ IF FALSE"
+      }
+    },
+    {
+      "name": "WaitingCallHasAsk",
+      "status": "holds",
+      "break": {
+        "code": "src/live-ask-ui.ts createLiveAskUILayer does not resume the call when ui.custom rejects",
+        "find": "  /\\ settled' = [settled EXCEPT ![c] = TRUE]\n  /\\ outcome' = [outcome EXCEPT ![c] = \"died\"]\n  /\\ phase' = [phase EXCEPT ![c] = \"resumed\"]\n  /\\ UNCHANGED <<held, open, screen, aborted, result>>",
+        "replace": "  /\\ phase' = [phase EXCEPT ![c] = \"waiting\"]\n  /\\ UNCHANGED <<held, open, screen, settled, aborted, outcome, result>>"
+      }
+    },
+    {
+      "name": "DeclineIsClear",
+      "status": "holds",
+      "break": {
+        "code": "src/live-ask-ui.ts createLiveAskUILayer passes null Answers on as a success in place of UserCancelled, so formatResult throws",
+        "find": "         [] outcome[c] = \"cancelled\" -> \"declined\"",
+        "replace": "         [] outcome[c] = \"cancelled\" /\\ ~aborted[c] -> \"error\""
+      }
+    }
+  ]
+}

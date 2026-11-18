@@ -26,7 +26,8 @@
   "scripts": {
     "test": "vitest run",
     "lint": "biome check .",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "verify": "bun scripts/check-verification.ts"
   },
   "pi": {
     "extensions": [

@@ -208,6 +208,11 @@ bun install
 bun run test
 bun run lint
 bun run typecheck
+bun run verify
 ```
+
+`bun run verify` needs Java 11 or later.
+It model-checks the Ask lifecycle and checks the state chart file of the change.
+The [verification skill](.claude/skills/verify-ask-lifecycle/SKILL.md) tells you how to update it.
 
 See [Manual QA](docs/manual-qa.md) for the release verification record.

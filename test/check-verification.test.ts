@@ -129,7 +129,7 @@ describe("state chart file of a change", () => {
   it("fails when the change adds no chart file", async () => {
     commit({ "README.md": "two\n" })
     expect((await checkChart(root, undefined)).problems).toEqual([
-      expect.stringContaining("adds no state chart file"),
+      expect.stringContaining("adds or changes no state chart file"),
     ])
   })
 
@@ -138,13 +138,36 @@ describe("state chart file of a change", () => {
       [`${skill}/charts/other.md`]: "No state change: only docs change.\n",
     })
     expect((await checkChart(root, "feature/x")).problems).toEqual([
-      expect.stringContaining(`adds no state chart file ${chart}`),
+      expect.stringContaining(`adds or changes no state chart file ${chart}`),
     ])
   })
 
   it("passes with a no state change note named by the branch", async () => {
     commit({ [chart]: "No state change: only docs change.\n" })
     expect((await checkChart(root, "feature/x")).problems).toEqual([])
+  })
+
+  it("passes when a later PR from the same branch changes its chart file", async () => {
+    git("checkout", "-q", "main")
+    commit({ [chart]: "No state change: only docs change.\n" })
+    git("update-ref", "refs/remotes/origin/main", "HEAD")
+    git("checkout", "-q", "feature/x")
+    git("reset", "-q", "--hard", "main")
+    commit({ [chart]: "No state change: only the README changes.\n" })
+    expect((await checkChart(root, "feature/x")).problems).toEqual([])
+  })
+
+  it("fails when the change deletes the chart file of the branch", async () => {
+    git("checkout", "-q", "main")
+    commit({ [chart]: "No state change: only docs change.\n" })
+    git("update-ref", "refs/remotes/origin/main", "HEAD")
+    git("checkout", "-q", "feature/x")
+    git("reset", "-q", "--hard", "main")
+    git("rm", "-q", chart)
+    git("commit", "-q", "-m", "change")
+    expect((await checkChart(root, "feature/x")).problems).toEqual([
+      expect.stringContaining(`adds or changes no state chart file ${chart}`),
+    ])
   })
 
   it("fails when the chart file has no mermaid chart and no note", async () => {

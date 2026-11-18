@@ -182,7 +182,7 @@ export async function checkChart(
   const charts = changes
     .filter(
       ([status, path = ""]) =>
-        status === "A" &&
+        status !== "D" &&
         posix.dirname(path) === chartDirectory &&
         path.endsWith(".md"),
     )
@@ -191,7 +191,7 @@ export async function checkChart(
   if (expected !== undefined && !charts.includes(expected)) {
     return {
       problems: [
-        `The change adds no state chart file ${expected} for the branch ${branch}. Follow the ${skillName} skill to add one.`,
+        `The change adds or changes no state chart file ${expected} for the branch ${branch}. Follow the ${skillName} skill to add one.`,
       ],
       notes: [],
     }
@@ -199,7 +199,7 @@ export async function checkChart(
   if (charts.length === 0) {
     return {
       problems: [
-        `The change adds no state chart file to ${chartDirectory}. Follow the ${skillName} skill to add one.`,
+        `The change adds or changes no state chart file in ${chartDirectory}. Follow the ${skillName} skill to add one.`,
       ],
       notes: [],
     }

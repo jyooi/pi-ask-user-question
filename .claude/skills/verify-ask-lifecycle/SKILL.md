@@ -38,7 +38,7 @@ The check fails in each of these cases, and it names the cause:
 2. A covered file or a model file changed, and its SHA-256 in `record.json` did not.
 3. TLC finds a violation of a property with the status `holds`, or a recorded finding no longer breaks.
 4. TLC does not catch the recorded break of a property with the status `holds`.
-5. The change adds no state chart file with the name of the branch.
+5. The change adds or changes no state chart file with the name of the branch.
 6. A state chart file has no Mermaid chart and no "No state change" note.
 7. A state chart file has a Mermaid chart, and no SVG image is beside it.
 8. The SVG image names a chart digest that is not the digest of the chart text.
@@ -47,7 +47,7 @@ The check finds the change from the merge base of `HEAD` and `origin/main` to `H
 It reads the committed chart files, so commit the chart file and its image before you run it.
 It does not check cases 5 to 8 when `HEAD` has no change from `origin/main`, for example on `main`.
 In CI, the check gets the branch name from `GITHUB_HEAD_REF`.
-On a detached `HEAD` with no branch name, the check accepts any chart file that the change adds.
+On a detached `HEAD` with no branch name, the check accepts any chart file that the change adds or changes.
 
 ## Tell if a change touches verified code
 
@@ -157,6 +157,7 @@ Move `syncCommit` only after you confirm that the model describes the code at th
 
 Each PR adds one state chart file to `charts/` in this skill folder.
 The file name is the branch name with the extension `.md`.
+A later PR from the same branch name changes that file.
 A hyphen replaces each character that is not a letter, a digit, `.`, `_`, or `-`.
 For example, the branch `fm/pi-ask-user-question-verification-setup` has the file `charts/fm-pi-ask-user-question-verification-setup.md`.
 
